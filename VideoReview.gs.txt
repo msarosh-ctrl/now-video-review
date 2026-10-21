@@ -17,6 +17,15 @@
 const VR_ROOT = '1CERVmZFpTSjshzrXo0Yp0nKz_usqrOBw';           // NEW NOW MATERIALS (finals live in <PILLAR>/VIDEO/<LANG>/)
 const VR_PILLARS = ['GROW', 'MAKE', 'MINDSET', 'PROTECT', 'START NOW'];
 const VR_INBOX_PATH = ['NOW VIDEO ANIMATIONS FOR EDITORS', 'NEW VIDEOS', 'For Revision Renders'];
+/** Videos the Editors tab always lists (status "Not uploaded yet" until a file exists). Add codes here when decks are ready. */
+const VR_EXPECTED = {
+  'MINDSET': ['MS01', 'MS02', 'MS03', 'MS04', 'MS05'],
+  'START NOW': ['SH01'],
+  'PROTECT': ['P01', 'P02', 'P03', 'P04', 'P05', 'P06', 'P07', 'P08'],
+  'GROW': [],      // add codes when decks are ready
+  'MAKE': []       // add codes when decks are ready
+};
+const VR_LANGS = ['ENGLISH', 'GERMAN', 'ITALIAN', 'GREEK', 'POLISH', 'SPANISH', 'JAPANESE'];
 const VR_PREFIX = { 'MINDSET': 'MS', 'START NOW': 'SH', 'PROTECT': 'P' };  // only used for a warning in VideoLog
 const VR_SETTLE_MS = 2 * 60 * 1000;                               // ignore files modified in the last 2 min (still uploading)
 const VR_HEAD = {
@@ -185,9 +194,9 @@ function vrIngestAll() {
   } catch (err) { try { vrLog_('error', '', '', String(err)); } catch (_) {} }
   finally { lock.releaseLock(); }
 }
-function vrIngestFolder_(L, p, lang, unclear) {
+function vrIngestFolder_(L, p, lang, unclear, noSettle) {
   const todo = [], now = Date.now(), fs = L.getFiles(), exact = {}, vers = vrVersions_();
-  const settled = function (f) { return now - f.getLastUpdated().getTime() >= VR_SETTLE_MS; };
+  const settled = function (f) { return noSettle || now - f.getLastUpdated().getTime() >= VR_SETTLE_MS; };   // noSettle: the editor pressed Uploaded, so the file is complete
   while (fs.hasNext()) {
     const f = fs.next(), name = f.getName(), ex = /^([A-Z]{1,3}\d{2})\.mp4$/.exec(name);
     if (ex) { (exact[ex[1]] = exact[ex[1]] || []).push(f); continue; }
@@ -254,7 +263,7 @@ function vrGet_(e) {
         return { id: n.id, key: n.key, v: Number(n.v), tc: Number(n.tc), tcText: n.tcText, text: n.text, by: n.by, at: n.at, shotId: n.shotId, fixed: n.fixed === 'yes', fixedBy: n.fixedBy };
       });
       let unclear = []; try { unclear = JSON.parse(PropertiesService.getScriptProperties().getProperty('VR_UNCLEAR') || '[]'); } catch (_) {}
-      return vrJson_({ ok: true, apiKey: PropertiesService.getScriptProperties().getProperty('VR_API_KEY') || '', tree: vrTree_(), notes: notes, events: vrRows_('VideoEvents').map(function (e) { return { key: e.key, v: Number(e.v), type: e.type, by: e.by, at: e.at, docId: e.docId || '' }; }),
+      return vrJson_({ ok: true, apiKey: PropertiesService.getScriptProperties().getProperty('VR_API_KEY') || '', expected: VR_EXPECTED, langs: VR_LANGS, tree: vrTree_(), notes: notes, events: vrRows_('VideoEvents').map(function (e) { return { key: e.key, v: Number(e.v), type: e.type, by: e.by, at: e.at, docId: e.docId || '' }; }),
         docs: vrRows_('VideoDocs').map(function (d) { return { key: d.key, v: Number(d.v), docId: d.docId, by: d.by, at: d.at }; }), unclear: unclear });
     }
     if (a === 'v_shot') {                                  // only files inside our shots folder can be fetched
@@ -294,6 +303,22 @@ function vrPost_(p) {
     if (p.action === 'v_refresh') {                          // rebuild the editor's combined doc
       const v = Number(p.v); try { vrRebuildCombined_(String(p.key), v); } catch (err) { return vrJson_({ ok: false, code: 'rebuild_failed', message: String(err) }); }
       return vrJson_({ ok: true });
+    }
+    if (p.action === 'v_uploaded') {                         // editor presses Uploaded: ingest THIS folder now, then tag the upload
+      const key = String(p.key), a = key.split('|');
+      if (!String(p.by || '').trim()) return vrJson_({ ok: false, code: 'no_name', message: 'Please type your name first.' });
+      if (a.length !== 3 || !VR_EXPECTED.hasOwnProperty(a[0]) || VR_LANGS.indexOf(a[1]) < 0) return vrJson_({ ok: false, code: 'bad_key' });
+      const inbox = vrInbox_(), pf = inbox && vrSub_(inbox, a[0], false), L = pf && vrSub_(pf, a[1], false), unclear = [];
+      if (L) vrIngestFolder_(L, a[0], a[1], unclear, true);
+      const vs = vrVersions_()[key] || [];
+      if (!vs.length) {
+        const hint = unclear.length ? ' Files without a usable code: ' + unclear.map(function (u) { return u.name + ' (' + u.why + ')'; }).join(', ') + '.' : '';
+        return vrJson_({ ok: false, code: 'no_file', message: 'File not found yet in For Revision Renders/' + a[0] + '/' + a[1] + '/ - upload it first (name must contain ' + a[2] + ').' + hint });
+      }
+      const v = vs[vs.length - 1].v;
+      const tagged = vrRows_('VideoEvents').some(function (e) { return e.key === key && Number(e.v) === v && (e.type === 'uploaded' || e.type === 'resubmitted'); });
+      if (!tagged) vrTab_('VideoEvents', true).appendRow([key, v, 'uploaded', vrBy_(p.by), vrNow_(), '']);
+      return vrJson_({ ok: true, v: v });
     }
     if (p.action === 'v_doc') {                              // create the version's doc on first open if the trigger has not yet
       const vs = vrVersions_()[String(p.key)] || [], rec = vs.filter(function (x) { return x.v === Number(p.v); })[0];
