@@ -7,3 +7,4 @@ Page works in demo (type, paste image, combined panel). Next: deploy backend v8,
 Pushed; backend v8 live. Remaining: live test MS03 + cleanup.
 
 # DONE: own editor live (page ffa57e8, backend Version 8). Test data cleaned. Not done: Editors/Final combined panel only live-checked in demo (no live video in a Changes-requested state), print PDF untested.
+WIP: item model page committed locally (not pushed). Next: deploy backend v9, import Farah doc comment, push page, live MS03 test+cleanup.

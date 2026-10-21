@@ -32,10 +32,42 @@ const VR_HEAD = {
   VideoNotes: ['id', 'key', 'v', 'tc', 'tcText', 'text', 'by', 'at', 'shotId', 'fixed', 'fixedBy', 'fixedAt'],
   VideoVersions: ['key', 'v', 'fileId', 'origName', 'size', 'date', 'docId'],
   VideoEvents: ['key', 'v', 'type', 'by', 'at', 'docId'],   // docId only on 'changes' (which reviewer doc was finished)
+  VideoComments: ['id', 'key', 'v', 'by', 'html', 'at'],      // one row per submitted comment (pasted images are ids in the shots folder)
   VideoDocs: ['key', 'v', 'docId', 'by', 'at'],             // extra reviewer docs (the first doc is VideoVersions.docId)   // uploaded | resubmitted | changes | ok | approved
   VideoLog: ['at', 'action', 'key', 'file', 'detail']
 };
 
+/** Strict sanitizer: only p/div/br/b/i/ul/ol/li and <img data-i="ID"> survive; everything else is dropped, text is escaped. */
+function vrSanitize_(html) {
+  const ok = { p: 1, div: 1, br: 1, b: 1, i: 1, ul: 1, ol: 1, li: 1 };
+  const esc = function (t) { return t.replace(/&(?!(amp|lt|gt|quot|#39|nbsp);)/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); };
+  html = String(html == null ? '' : html); let out = '', last = 0, m; const re = /<(\/?)([a-zA-Z][a-zA-Z0-9]*)([^<>]*)>/g;
+  while ((m = re.exec(html))) {
+    out += esc(html.slice(last, m.index)); last = re.lastIndex;
+    const tag = m[2].toLowerCase();
+    if (tag === 'img') { const id = /data-i="([A-Za-z0-9_-]{10,80})"/.exec(m[3]); if (id && !m[1]) out += '<img data-i="' + id[1] + '">'; }
+    else if (ok[tag]) out += m[1] ? (tag === 'br' ? '' : '</' + tag + '>') : (tag === 'br' ? '<br>' : '<' + tag + '>');
+  }
+  return out + esc(html.slice(last));
+}
+/** One-off helper: turn a Google Doc (text + inline images) into ONE submitted comment, keeping the original date. Images are copied into the shots folder; the Doc is left untouched. */
+function vrImportDocAsComment_(docId, key, v, by, at) {
+  const body = DocumentApp.openById(docId).getBody(), ET = DocumentApp.ElementType, parts = [];
+  const esc = function (t) { return String(t).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;'); };
+  function walk(el) {
+    for (let j = 0; j < el.getNumChildren(); j++) {
+      const c = el.getChild(j), t = c.getType();
+      if (t === ET.INLINE_IMAGE) { const f = vrShots_().createFile(c.asInlineImage().getBlob().setName(String(key).replace(/[|\s]/g, '_') + '_v' + v + '_import_' + Utilities.getUuid().slice(0, 6))); parts.push('<img data-i="' + f.getId() + '">'); }
+      else if (t === ET.TEXT) { const tx = c.asText().getText(); if (tx.trim()) parts.push('<p>' + esc(tx) + '</p>'); }
+      else if (c.getNumChildren) walk(c);
+    }
+  }
+  walk(body);
+  const html = vrSanitize_(parts.join('')); if (!html) return '';
+  const id = 'c' + Utilities.getUuid().replace(/-/g, '').slice(0, 8);
+  vrTab_('VideoComments', true).appendRow([id, key, v, by, html, at || vrNow_()]); vrLog_('import_doc_comment', key, docId, by + ' -> ' + id);
+  return id;
+}
 function vrJson_(o) { return ContentService.createTextOutput(JSON.stringify(o)).setMimeType(ContentService.MimeType.JSON); }
 function doGet(e) { return vrGet_(e || { parameter: {} }); }
 function doPost(e) {
@@ -63,7 +95,15 @@ function vrRows_(name) {
 function vrNow_(d) { return Utilities.formatDate(d || new Date(), 'Etc/UTC', 'yyyy-MM-dd HH:mm') + ' UTC'; }
 function vrBy_(s) { return String(s || '').replace(/[\r\n\t]+/g, ' ').trim().slice(0, 60); }
 function vrLog_(action, key, file, detail) { vrTab_('VideoLog', true).appendRow([vrNow_(), action, key || '', file || '', detail || '']); }
+function vrMigrateComments_() {                              // older sheet: [key, v, by, html, updatedAt] -> one row per comment with an id
+  const sh = vrTab_('VideoComments', false); if (!sh || String(sh.getRange(1, 1).getValue()) !== 'key') return;
+  const old = vrRows_('VideoComments').filter(function (r) { return String(r.html).trim(); });
+  sh.clear(); sh.getRange(1, 1, 1, VR_HEAD.VideoComments.length).setValues([VR_HEAD.VideoComments]); sh.setFrozenRows(1);
+  sh.getRange(1, 1, sh.getMaxRows(), VR_HEAD.VideoComments.length).setNumberFormat('@');
+  old.forEach(function (r) { sh.appendRow(['c' + Utilities.getUuid().replace(/-/g, '').slice(0, 8), r.key, r.v, r.by, r.html, r.updatedAt || vrNow_()]); });
+}
 function vrInit_() {
+  vrMigrateComments_();
   Object.keys(VR_HEAD).forEach(function (n) { vrTab_(n, true); });
   const sh = vrTab_('VideoVersions', true);                       // older sheets have 6 columns: add docId
   const ev = vrTab_('VideoEvents', true);                          // older sheets: add docId column to VideoEvents
@@ -264,6 +304,7 @@ function vrGet_(e) {
       });
       let unclear = []; try { unclear = JSON.parse(PropertiesService.getScriptProperties().getProperty('VR_UNCLEAR') || '[]'); } catch (_) {}
       return vrJson_({ ok: true, apiKey: PropertiesService.getScriptProperties().getProperty('VR_API_KEY') || '', expected: VR_EXPECTED, langs: VR_LANGS, tree: vrTree_(), notes: notes, events: vrRows_('VideoEvents').map(function (e) { return { key: e.key, v: Number(e.v), type: e.type, by: e.by, at: e.at, docId: e.docId || '' }; }),
+        comments: vrRows_('VideoComments').map(function (c) { return { id: c.id, key: c.key, v: Number(c.v), by: c.by, html: c.html, at: c.at }; }),
         docs: vrRows_('VideoDocs').map(function (d) { return { key: d.key, v: Number(d.v), docId: d.docId, by: d.by, at: d.at }; }), unclear: unclear });
     }
     if (a === 'v_shot') {                                  // only files inside our shots folder can be fetched
@@ -320,6 +361,31 @@ function vrPost_(p) {
       if (!tagged) vrTab_('VideoEvents', true).appendRow([key, v, 'uploaded', vrBy_(p.by), vrNow_(), '']);
       return vrJson_({ ok: true, v: v });
     }
+    if (p.action === 'v_comment_add') {                      // "Submit comment": one new item
+      const key = String(p.key), v = Number(p.v), vs = vrVersions_()[key] || [];
+      if (!by) return vrJson_({ ok: false, code: 'no_name', message: 'Please type your name first.' });
+      if (!vs.length || v !== vs[vs.length - 1].v) return vrJson_({ ok: false, code: 'stale', message: 'A newer version arrived - reload the page (your text is still in the box).' });
+      const html = vrSanitize_(p.html); if (!/\S/.test(html.replace(/<[^>]*>|&nbsp;/g, '').replace(/\s/g, '')) && !/<img/.test(html)) return vrJson_({ ok: false, code: 'empty', message: 'Write something or paste a screenshot first.' });
+      if (html.length > 150000) return vrJson_({ ok: false, code: 'too_big', message: 'Comment too long.' });
+      const id = 'c' + Utilities.getUuid().replace(/-/g, '').slice(0, 8), at = vrNow_();
+      vrTab_('VideoComments', true).appendRow([id, key, v, by, html, at]); return vrJson_({ ok: true, id: id, at: at });
+    }
+    if (p.action === 'v_comment_edit' || p.action === 'v_comment_delete') {   // only by re-typing the same name
+      const sh = vrTab_('VideoComments', true), row = vrRows_('VideoComments').filter(function (c) { return c.id === String(p.id); })[0];
+      if (!by) return vrJson_({ ok: false, code: 'no_name', message: 'Please type your name first.' });
+      if (!row) return vrJson_({ ok: false, code: 'gone', message: 'That comment no longer exists.' });
+      if (String(row.by).toLowerCase() !== by.toLowerCase()) return vrJson_({ ok: false, code: 'not_yours', message: 'Only ' + row.by + ' can change this comment (type the same name).' });
+      if (p.action === 'v_comment_delete') { sh.deleteRow(row._row); return vrJson_({ ok: true }); }
+      const html = vrSanitize_(p.html); if (!/<img/.test(html) && !html.replace(/<[^>]*>|&nbsp;/g, '').replace(/\s/g, '')) return vrJson_({ ok: false, code: 'empty', message: 'A comment cannot be empty - delete it instead.' });
+      sh.getRange(row._row, 5).setValue(html); return vrJson_({ ok: true });
+    }
+    if (p.action === 'v_image') {                            // a pasted screenshot -> shots folder, returns the id
+      if (!by) return vrJson_({ ok: false, code: 'no_name', message: 'Please type your name first.' });
+      const m = /^data:image\/jpeg;base64,([A-Za-z0-9+\/=]+)$/.exec(String(p.image || ''));
+      if (!m || m[1].length > 3000000) return vrJson_({ ok: false, code: 'bad_image', message: 'Image rejected (JPEG up to about 2 MB).' });
+      const f = vrShots_().createFile(Utilities.newBlob(Utilities.base64Decode(m[1]), 'image/jpeg', String(p.key).replace(/[|\s]/g, '_') + '_v' + Number(p.v) + '_' + Utilities.getUuid().slice(0, 6) + '.jpg'));
+      return vrJson_({ ok: true, id: f.getId() });
+    }
     if (p.action === 'v_doc') {                              // create the version's doc on first open if the trigger has not yet
       const vs = vrVersions_()[String(p.key)] || [], rec = vs.filter(function (x) { return x.v === Number(p.v); })[0];
       if (!rec) return vrJson_({ ok: false, code: 'bad_version' });
@@ -338,7 +404,6 @@ function vrPost_(p) {
         if (vrRows_('VideoEvents').some(function (e) { return e.key === key && Number(e.v) === v && e.type === 'changes' && e.docId === docId; })) return vrJson_({ ok: false, code: 'already', message: 'This document is already marked done.' });
       }
       vrTab_('VideoEvents', true).appendRow([key, v, t, by, vrNow_(), docId]);
-      if (t === 'changes' && docId) { try { vrRebuildCombined_(key, v); } catch (err) { vrLog_('combine_failed', key, docId, String(err)); } }
       return vrJson_({ ok: true });
     }
     if (p.action === 'v_newdoc') {                           // "Open my comments": the reviewer's own doc for this version (idempotent per name)
