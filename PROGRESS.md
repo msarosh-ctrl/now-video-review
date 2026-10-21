@@ -10,3 +10,4 @@ Pushed; backend v8 live. Remaining: live test MS03 + cleanup.
 WIP: item model page committed locally (not pushed). Next: deploy backend v9, import Farah doc comment, push page, live MS03 test+cleanup.
 Pushed page + backend Version 9 deployed. Next: migrate Farah's doc comment, live MS03 test + cleanup.
 DONE: item model live (page c9df297, backend v9), Farah image comment imported (doc had no text, image only), test comments deleted.
+DONE 21 Oct late: Farah MS01 item now has her text + image; Editors always show current-version comments; button label Add comments; edit/delete refusal + print view verified live. Nothing pending.
