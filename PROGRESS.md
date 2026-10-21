@@ -4,3 +4,4 @@ Done locally: backend VideoReview.gs adds VideoComments tab + v_comment (auto-sa
 Next: page (contenteditable box, paste->downscaled JPEG->v_image, debounce save, combined panel + print PDF, Farah link), then deploy backend New version, push page, live check MS03 + cleanup.
 Rule: old actions still work; deploy backend only when page is ready.
 Page works in demo (type, paste image, combined panel). Next: deploy backend v8, push page, live check MS03, cleanup.
+Pushed; backend v8 live. Remaining: live test MS03 + cleanup.
