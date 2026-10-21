@@ -189,7 +189,7 @@ function combinedCards(i,v){const k=keyOf(i),cs=commentsOf(k,v),order=[],by={};c
   old.map(e=>`<div class="card" style="margin-top:12px"><div class="bar2" style="margin:0"><b>Comments by ${esc(e.by)} — ${esc(e.at)}</b><span style="flex:1"></span>${gdocLink(k,v,e.by)}</div></div>`).join('')||'<div class="card mut" style="margin-top:12px">No comments yet.</div>'}
 async function printPanel(i,v){const box=document.createElement('div');box.innerHTML=`<h2>${esc(i.pillar)} / ${esc(i.lang)} / ${esc(i.code)} — v${v} — comments</h2><p>${new Date().toISOString().slice(0,10)}</p>`+combinedCards(i,v).replace(/class="card"/g,'class="n"');await fillImgs(box);$('#pa').innerHTML=box.innerHTML;await new Promise(r=>setTimeout(r,400));window.print()}
 async function renderDoc(i,cur){const box=$('#docbox');if(!box)return;const k=keyOf(i);let v=cur.v;if(ROLE!=='Reviewers'&&$('#rvbar'))$('#rvbar').innerHTML='';
- if(ROLE==='Editors'){const K=fixV(i),st=status(i);if(!(K&&(st==='Changes requested'||st==='New file'))){box.dataset.d='';box.innerHTML='<div class="card mut">No changes to fix right now.</div>';return}v=K}
+ if(ROLE==='Editors'){const K=fixV(i),st=status(i),open=K&&(st==='Changes requested'||st==='New file');v=open?K:latest(i);if(!open&&!commentsOf(k,v).length&&!evOf(k).some(e=>e.type==='changes'&&e.v===v&&e.docId)){box.dataset.d='';box.innerHTML='<div class="card mut">No changes to fix right now.</div>';return}}
  if(!v){box.dataset.d='';box.innerHTML='<div class="card mut">This video is already final.</div>';return}
  if(!i.versions.find(x=>x.v===v))return;
  if(ROLE!=='Reviewers'){const cs=commentsOf(k,v),sg=ROLE+'|'+k+'|'+v+'|'+cs.map(c=>c.by+c.at).join()+'|'+evOf(k).length+'|'+recSig(i,v);if(box.dataset.d===sg)return;box.dataset.d=sg;
