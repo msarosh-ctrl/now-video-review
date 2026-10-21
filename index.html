@@ -21,7 +21,7 @@ main{display:grid;grid-template-columns:330px 1fr;gap:20px;margin-top:18px}@medi
 .card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px}
 summary{cursor:pointer;font-weight:600;padding:4px 0}.row{display:flex;justify-content:space-between;gap:8px;align-items:center;padding:7px 8px;border-radius:8px;cursor:pointer}
 .row:hover,.row.sel{background:var(--edit-bg)}.chip{display:inline-flex;padding:3px 10px;border-radius:999px;background:var(--edit-bg);color:var(--violet);font-weight:500;font-size:12px;white-space:nowrap}
-.s-New-file,.s-Changes-requested{background:var(--amber-bg);color:var(--amber)}.s-Waiting-for-approval{background:var(--grad);color:#fff}.s-Not-uploaded-yet{background:var(--line);color:var(--muted)}.s-Approved{background:#e3f7ee;color:var(--green)}@media(prefers-color-scheme:dark){.s-Approved{background:#12302a}}
+.s-New-file,.s-Changes-requested{background:var(--amber-bg);color:var(--amber)}.s-Waiting-for-approval{background:var(--grad);color:#fff}.s-Not-uploaded-yet{background:var(--line);color:var(--muted)}.cbox{min-height:240px;border:1px solid var(--line);border-radius:10px;padding:12px;background:var(--canvas);outline:none;line-height:1.55;white-space:pre-wrap}.cbox:empty:before{content:attr(data-ph);color:var(--muted)}.cbox img,.cview img{max-width:560px;width:100%;border-radius:8px;border:1px solid var(--line);cursor:zoom-in;display:block;margin:8px 0}.cview{white-space:pre-wrap;line-height:1.55;margin-top:8px}#pa .cview img{max-width:100%;max-height:600px;width:auto}.s-Approved{background:#e3f7ee;color:var(--green)}@media(prefers-color-scheme:dark){.s-Approved{background:#12302a}}
 .sec{font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin:6px 0}
 video{width:100%;background:#000;border-radius:10px;max-height:58vh}.bar2{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:10px 0}
 .seg{display:flex;gap:4px;background:var(--card);border:1px solid var(--line);border-radius:10px;padding:3px}.seg button{border:0;background:transparent;color:var(--muted)}.seg button[aria-pressed=true]{background:var(--ink);color:var(--canvas)}.tabs button[aria-pressed=true]{background:var(--ink);color:var(--canvas)}.note{display:grid;grid-template-columns:150px 1fr;gap:12px;padding:12px 0;border-top:1px solid var(--line)}
@@ -53,12 +53,14 @@ async function api(action,body){
     const j=await r.json();if(!j.ok)throw new Error(j.message||j.code);return j}
   const s=ls(),save=()=>localStorage.setItem('vr_demo3',JSON.stringify(s)),b=body;
   if(action==='v_uploaded'){if(DEMO_TREE.some(i=>`${i.pillar}|${i.lang}|${i.code}`===b.key&&i.versions.length)){const s2=s;if(!s.events.some(e=>e.key===b.key&&(e.type==='uploaded'||e.type==='resubmitted')))s.events.push({key:b.key,v:1,type:'uploaded',by:b.by,at:nowS()});save();return{ok:1}}throw new Error('File not found yet in For Revision Renders/'+b.key.split('|')[0]+'/'+b.key.split('|')[1]+'/ - upload it first (name must contain '+b.key.split('|')[2]+').')}
-  if(action==='v_all')return{ok:1,expected:{MINDSET:['MS01','MS02','MS03'],PROTECT:['P01'],'START NOW':['SH01']},langs:['ENGLISH','GERMAN'],tree:DEMO_TREE,notes:s.notes.map(n=>({...n,image:undefined})),events:s.events,docs:s.docs||[],unclear:DEMO_UNCLEAR};
-  if(action==='v_shot')return{ok:1,data:(s.notes.find(n=>n.shotId===b.id)||{}).image};
+  if(action==='v_all')return{ok:1,expected:{MINDSET:['MS01','MS02','MS03'],PROTECT:['P01'],'START NOW':['SH01']},langs:['ENGLISH','GERMAN'],tree:DEMO_TREE,notes:s.notes.map(n=>({...n,image:undefined})),events:s.events,docs:s.docs||[],comments:s.comments||[],unclear:DEMO_UNCLEAR};
+  if(action==='v_shot')return{ok:1,data:(s.images||{})[b.id]||(s.notes.find(n=>n.shotId===b.id)||{}).image};
   if(action==='v_note'){const id='n'+Math.random().toString(36).slice(2,10);s.notes.push({id,key:b.key,v:b.v,tc:b.tc,tcText:b.tcText,text:b.text,by:b.by,at:nowS(),shotId:b.image?id:'',image:b.image,fixed:false});save();return{ok:1}}
   if(action==='v_fixed'){const n=s.notes.find(n=>n.id===b.id);n.fixed=b.on;n.fixedBy=b.by;save();return{ok:1}}
   if(action==='v_event'){s.events.push({key:b.key,v:b.v,type:b.type,by:b.by,at:nowS(),docId:b.docId||''});save();return{ok:1}}
   if(action==='v_doc'){DEMO_TREE.forEach(i=>i.versions.forEach(x=>{x.doc=x.doc||'demodoc'+x.v}));return{ok:1}}
+  if(action==='v_comment'){s.comments=s.comments||[];const r=s.comments.find(c=>c.key===b.key&&c.v===b.v&&c.by.toLowerCase()===b.by.toLowerCase());if(r){r.html=b.html;r.at=nowS()}else s.comments.push({key:b.key,v:b.v,by:b.by,html:b.html,at:nowS()});save();return{ok:1}}
+  if(action==='v_image'){s.images=s.images||{};const id='img'+Math.random().toString(36).slice(2,12);s.images[id]=b.image;save();return{ok:1,id}}
   if(action==='v_refresh'){s.docs=s.docs||[];if(!s.docs.some(d=>d.key===b.key&&d.v===b.v&&d.by==='ALL'))s.docs.push({key:b.key,v:b.v,docId:'demoall',by:'ALL',at:nowS()});save();return{ok:1}}
   if(action==='v_newdoc'){s.docs=s.docs||[];const dup=s.docs.find(d=>d.key===b.key&&d.v===b.v&&d.by.toLowerCase()===b.by.toLowerCase());if(!dup){const first='demodoc'+b.v,claimed=s.docs.some(d=>d.key===b.key&&d.v===b.v&&d.docId===first);s.docs.push({key:b.key,v:b.v,docId:claimed?'demo'+Math.random().toString(36).slice(2,8):first,by:b.by,at:nowS()})}save();return{ok:1}}
   if(action==='v_approve'){if(b.pin!=='123456')throw new Error('Wrong PIN (demo PIN is 123456).');s.events.push({key:b.key,v:b.v,type:'approved',by:'Sarosh',at:nowS()});save();return{ok:1}}
@@ -80,7 +82,7 @@ const chgNames=i=>{const N=latest(i),k=keyOf(i),n=evOf(k).filter(e=>e.type==='ch
 const TAG={uploaded:e=>`Uploaded by ${e.by}`,resubmitted:e=>`Ready for review after changes - ${e.by}`,changes:e=>`Changes by ${e.by}`,ok:e=>`Approved by ${e.by}`,approved:e=>`Final approval by ${e.by}`};
 function withGhosts(){D.tree=(D.tree||[]).filter(i=>!i.ghost);const have=new Set(D.tree.map(keyOf)),ex=D.expected||{},lg=D.langs||[];   // expected videos with no file yet
  Object.keys(ex).forEach(p=>lg.forEach(l=>(ex[p]||[]).forEach(c=>{if(!have.has(p+'|'+l+'|'+c))D.tree.push({pillar:p,lang:l,code:c,final:null,versions:[],ghost:true})})))}
-async function load(){if(!D.tree.length){try{const c=JSON.parse(localStorage.getItem('vr_cache')||'null');if(c&&c.tree){D=c;withGhosts();renderList()}}catch(e){}}try{D=await api('v_all');withGhosts();try{localStorage.setItem('vr_cache',JSON.stringify({expected:D.expected,langs:D.langs,tree:D.tree.filter(i=>!i.ghost),notes:D.notes,events:D.events,docs:D.docs,unclear:D.unclear,apiKey:D.apiKey}))}catch(e){}}catch(e){toast('Could not load: '+e.message);return}renderList();if(sel)renderView(true)}
+async function load(){if(!D.tree.length){try{const c=JSON.parse(localStorage.getItem('vr_cache')||'null');if(c&&c.tree){D=c;withGhosts();renderList()}}catch(e){}}try{D=await api('v_all');withGhosts();try{localStorage.setItem('vr_cache',JSON.stringify({expected:D.expected,langs:D.langs,tree:D.tree.filter(i=>!i.ghost),notes:D.notes,events:D.events,docs:D.docs,comments:D.comments,unclear:D.unclear,apiKey:D.apiKey}))}catch(e){}}catch(e){toast('Could not load: '+e.message);return}renderList();if(sel)renderView(true)}
 function renderFinalList(){const f=$('#fs').value,wait=D.tree.filter(i=>status(i)==='Waiting for approval'),fin=D.tree.filter(i=>i.final),g={};
  fin.forEach(i=>((g[i.pillar]??={})[i.lang]??=[]).push(i));
  const ap=i=>{const e=evOf(keyOf(i)).filter(x=>x.type==='approved').pop();return e?`approved by ${esc(e.by)} · ${esc(e.at)}`:'approved earlier'},op=id=>closed.has(id)?'':'open';
@@ -141,49 +143,59 @@ function renderView(keep){const i=item();if(!i){$('#view').innerHTML='';return}i
  renderHead(i,cur);renderDoc(i,cur)}
 /* ---------- the change list = one Google Doc per version (screenshots pasted by the reviewer) ---------- */
 const DOC=id=>'https://docs.google.com/document/d/'+id, creating=new Set();
+/* ---------- our own comment editor (no Google Docs): one box per reviewer, text + pasted screenshots ---------- */
+const imgCache={};
+async function fillImgs(root){for(const im of root.querySelectorAll('img[data-i]')){if(im.getAttribute('src'))continue;const id=im.dataset.i;im.classList.add('cimg');
+ try{if(!imgCache[id])imgCache[id]=(await api('v_shot',{id})).data;im.src=imgCache[id]}catch(e){im.alt='(image not available)'}}}
+function zoomImg(src){const o=document.createElement('div');o.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,.85);z-index:99;display:flex;align-items:center;justify-content:center;cursor:zoom-out';o.innerHTML='<img src="'+src+'" style="max-width:95vw;max-height:95vh">';o.onclick=()=>o.remove();document.body.appendChild(o)}
+const hasText=h=>(h||'').replace(/<[^>]*>|&nbsp;|\s/g,'').length>0||/<img/.test(h||'');
+const commentsOf=(k,v)=>(D.comments||[]).filter(c=>c.key===k&&Number(c.v)===v&&hasText(c.html));
+const gdocLink=(k,v,by)=>{const e=evOf(k).filter(e=>e.type==='changes'&&e.v===v&&e.docId&&(!by||e.by.toLowerCase()===by.toLowerCase())).pop();return e?`<a class="btn" style="text-decoration:none" target="_blank" rel="noopener" href="${DOC(e.docId)}/edit">Earlier comments (Google Doc)</a>`:''};
+function shrink(file){return new Promise((res,rej)=>{const u=URL.createObjectURL(file),im=new Image();im.onload=()=>{const sc=Math.min(1,1200/im.width),c=document.createElement('canvas');c.width=Math.round(im.width*sc);c.height=Math.round(im.height*sc);c.getContext('2d').drawImage(im,0,0,c.width,c.height);URL.revokeObjectURL(u);res(c.toDataURL('image/jpeg',.8))};im.onerror=()=>rej(new Error('not an image'));im.src=u})}
+function mountBox(i,v,name,box){const k=keyOf(i),ed=box.querySelector('.cbox'),st=box.querySelector('#csave');
+ const row=(D.comments||[]).find(c=>c.key===k&&Number(c.v)===v&&c.by.toLowerCase()===name.toLowerCase());ed.innerHTML=row?row.html:'';fillImgs(ed);
+ let t=null,dirty=false,saving=false;
+ const ser=()=>{const c=ed.cloneNode(true);c.querySelectorAll('img').forEach(im=>{const id=im.dataset.i;if(id){const n=document.createElement('img');n.setAttribute('data-i',id);im.replaceWith(n)}else im.remove()});return c.innerHTML};
+ const save=async()=>{if(saving){t=setTimeout(save,500);return}saving=true;st.textContent='Saving…';const html=ser();
+  try{await api('v_comment',{key:k,v,by:name,html});dirty=false;st.textContent='Saved ✓';D.comments=D.comments||[];const r=D.comments.find(c=>c.key===k&&Number(c.v)===v&&c.by.toLowerCase()===name.toLowerCase());if(r)r.html=html;else D.comments.push({key:k,v,by:name,html,at:nowS()})}
+  catch(e){st.textContent='Not saved: '+e.message+' (your text is kept, retrying)';t=setTimeout(save,5000)}saving=false};
+ ed.addEventListener('input',()=>{dirty=true;st.textContent='Typing…';clearTimeout(t);t=setTimeout(save,900)});
+ ed.addEventListener('click',e=>{if(e.target.tagName==='IMG')zoomImg(e.target.src)});
+ ed.addEventListener('paste',async e=>{const it=[...(e.clipboardData&&e.clipboardData.items||[])].find(x=>x.type.indexOf('image/')===0);
+  if(it){e.preventDefault();st.textContent='Uploading image…';try{const url=await shrink(it.getAsFile()),r=await api('v_image',{key:k,v,by:name,image:url});imgCache[r.id]=url;document.execCommand('insertHTML',false,`<img data-i="${r.id}" src="${url}" class="cimg"><br>`);ed.dispatchEvent(new Event('input'))}catch(er){st.textContent='Image not saved: '+er.message}return}
+  const tx=e.clipboardData&&e.clipboardData.getData('text/plain');if(tx!=null){e.preventDefault();document.execCommand('insertText',false,tx)}});
+ ed.flush=async()=>{clearTimeout(t);if(dirty)await save()};window.onbeforeunload=()=>dirty?'Your comment is still saving.':undefined;return ed}
 /* previous rounds, read-only: "Revision done - changes from v<r> (names) - fixed by <editor> <date>" */
-function rounds(i,v){const k=keyOf(i),out=[];for(let r=1;r<v;r++){const all=D.docs.find(d=>d.key===k&&Number(d.v)===r&&d.by==='ALL');if(!all)continue;
- const names=[...new Set(evOf(k).filter(e=>e.type==='changes'&&e.v===r&&e.docId).map(e=>e.by))],fx=evOf(k).filter(e=>e.type==='resubmitted'&&e.v===r+1).pop();out.push({r,all,names,fx})}return out}
-const recSig=(i,v)=>rounds(i,v).map(x=>x.r+x.all.docId+(x.fx?x.fx.by+x.fx.at:'')).join(',');
+function rounds(i,v){const k=keyOf(i),out=[];for(let r=1;r<v;r++){const ch=evOf(k).filter(e=>e.type==='changes'&&e.v===r);if(!ch.length)continue;
+ out.push({r,names:[...new Set(ch.map(e=>e.by))],fx:evOf(k).filter(e=>e.type==='resubmitted'&&e.v===r+1).pop(),all:D.docs.find(d=>d.key===k&&Number(d.v)===r&&d.by==='ALL')})}return out}
+const recSig=(i,v)=>rounds(i,v).map(x=>x.r+x.names.join()+(x.fx?x.fx.by+x.fx.at:'')).join(',');
 function recHTML(i,v){const lk=(u,t)=>`<a class="btn" style="text-decoration:none" target="_blank" rel="noopener" href="${u}">${t}</a>`;
- return rounds(i,v).map(x=>`<div class="card" style="margin-bottom:12px;border-style:dashed"><div class="bar2" style="margin:0"><b>Revision done — changes from v${x.r}</b><span class="mut">${x.names.map(esc).join(', ')} — ${x.fx?'fixed by '+esc(x.fx.by)+' '+esc(x.fx.at):'fix not marked yet'}</span><span style="flex:1"></span>${ROLE===FIN?lk(DOC(x.all.docId)+'/edit','Open doc')+lk(DOC(x.all.docId)+'/export?format=pdf','Download PDF'):''}</div><div class="mut">Record of an earlier round (read-only history).</div></div>`).join('')}
-function docsFor(i,v){const k=keyOf(i),rec=i.versions.find(x=>x.v===v);if(!rec)return[];
- const evs=evOf(k).filter(e=>e.type==='changes'&&e.v===v&&e.docId),mk=(docId,by)=>{const e=evs.find(x=>x.docId===docId);return{docId,by:e?e.by:by,done:e||null}};
- const own=D.docs.find(d=>d.key===k&&Number(d.v)===v&&d.docId===rec.doc);
- return[mk(rec.doc,own?own.by:''),...D.docs.filter(d=>d.key===k&&Number(d.v)===v&&d.by!=='ALL'&&d.docId!==rec.doc).map(d=>mk(d.docId,d.by))]}
+ return rounds(i,v).map(x=>`<div class="card" style="margin-bottom:12px;border-style:dashed"><div class="bar2" style="margin:0"><b>Revision done — changes from v${x.r}</b><span class="mut">${x.names.map(esc).join(', ')} — ${x.fx?'fixed by '+esc(x.fx.by)+' '+esc(x.fx.at):'fix not marked yet'}</span><span style="flex:1"></span>${ROLE===FIN&&x.all?lk(DOC(x.all.docId)+'/edit','Open doc'):''}</div><div class="mut">Record of an earlier round (read-only history).</div></div>`).join('')}
+/* combined panel for Editors / Final videos: every reviewer's comments of one version */
+function combinedCards(i,v){const k=keyOf(i),cs=commentsOf(k,v),names=new Set(cs.map(c=>c.by.toLowerCase())),old=evOf(k).filter(e=>e.type==='changes'&&e.v===v&&e.docId&&!names.has(e.by.toLowerCase()));
+ return cs.map(c=>`<div class="card" style="margin-top:12px"><div class="bar2" style="margin:0"><b>Comments by ${esc(c.by)} — ${esc(c.at)}</b><span style="flex:1"></span>${gdocLink(k,v,c.by)}</div><div class="cview">${c.html}</div></div>`).join('')+
+  old.map(e=>`<div class="card" style="margin-top:12px"><div class="bar2" style="margin:0"><b>Comments by ${esc(e.by)} — ${esc(e.at)}</b><span style="flex:1"></span>${gdocLink(k,v,e.by)}</div></div>`).join('')||'<div class="card mut" style="margin-top:12px">No comments yet.</div>'}
+async function printPanel(i,v){const box=document.createElement('div');box.innerHTML=`<h2>${esc(i.pillar)} / ${esc(i.lang)} / ${esc(i.code)} — v${v} — comments</h2><p>${new Date().toISOString().slice(0,10)}</p>`+combinedCards(i,v).replace(/class="card"/g,'class="n"');await fillImgs(box);$('#pa').innerHTML=box.innerHTML;await new Promise(r=>setTimeout(r,400));window.print()}
 async function renderDoc(i,cur){const box=$('#docbox');if(!box)return;const k=keyOf(i);let v=cur.v;if(ROLE!=='Reviewers'&&$('#rvbar'))$('#rvbar').innerHTML='';
  if(ROLE==='Editors'){const K=fixV(i),st=status(i);if(!(K&&(st==='Changes requested'||st==='New file'))){box.dataset.d='';box.innerHTML='<div class="card mut">No changes to fix right now.</div>';return}v=K}
  if(!v){box.dataset.d='';box.innerHTML='<div class="card mut">This video is already final.</div>';return}
- const rec=i.versions.find(x=>x.v===v);if(!rec)return;
- if(!rec.doc){if(creating.has(k+v))return;creating.add(k+v);box.innerHTML='<div class="card mut">Creating the change document…</div>';
-  try{await api('v_doc',{key:k,v});await load()}catch(e){box.innerHTML='<div class="card mut">Could not create the document: '+esc(e.message)+'</div>'}creating.delete(k+v);return}
-if(ROLE!=='Reviewers'){const all=D.docs.find(d=>d.key===k&&Number(d.v)===v&&d.by==='ALL'),done=evOf(k).filter(e=>e.type==='changes'&&e.v===v&&e.docId);
-  if(!all){if(!done.length){box.dataset.d='r'+recSig(i,v);box.innerHTML=(ROLE===FIN?recHTML(i,v):'')+'<div class="card mut">No comments on this version yet.</div>';return}
-   if(creating.has(k+v+'A'))return;creating.add(k+v+'A');box.innerHTML='<div class="card mut">Building the combined document…</div>';
-   try{await api('v_refresh',{key:k,v});await load()}catch(e){box.innerHTML='<div class="card mut">Could not build the combined document: '+esc(e.message)+'</div>'}creating.delete(k+v+'A');return}
-  const sg=ROLE+'|'+all.docId+'|'+done.length+'|'+recSig(i,v);if(box.dataset.d===sg)return;box.dataset.d=sg;
-  const lk=(u,t)=>`<a class="btn" style="text-decoration:none" target="_blank" rel="noopener" href="${u}">${t}</a>`,pv=i.versions.find(x=>x.v===v-1);
-  box.innerHTML=(ROLE===FIN?recHTML(i,v):'')+`<div class="card"><div class="bar2" style="margin-top:0"><b>All changes (v${v})</b><span class="mut">${done.map(e=>'Comments by '+esc(e.by)).join(' · ')}</span><span style="flex:1"></span><button id="rf">Refresh</button>${lk(DOC(all.docId)+'/edit','Open doc')}${lk(DOC(all.docId)+'/export?format=pdf','Download PDF')}</div>
-   <div class="mut">One document with every reviewer's comments, in the order they finished. It rebuilds when a reviewer presses Changes done (or press Refresh).</div>
-   <iframe src="${DOC(all.docId)}/edit?rm=minimal&embedded=true" style="width:100%;height:720px;border:1px solid var(--line);border-radius:10px;background:#fff;margin-top:8px"></iframe></div>`;
-  $('#rf').onclick=async()=>{box.dataset.d='';const b=$('#rf');b.disabled=true;b.textContent='Refreshing…';try{await api('v_refresh',{key:k,v});await load()}catch(e){toast('Refresh failed: '+e.message)}renderDoc(i,cur)};return}
- const all=docsFor(i,v),me=revName.trim().toLowerCase(),mine=me?all.find(d=>d.by&&d.by.toLowerCase()===me):null,canEdit=v===latest(i);
- const sig='R|'+revName+'|'+(mine?mine.docId+':'+(mine.done?mine.done.by:''):'-')+'|'+recSig(i,v);
- if(box.dataset.d===sig)return;box.dataset.d=sig;
- const link=(u,t)=>`<a class="btn" style="text-decoration:none" target="_blank" rel="noopener" href="${u}">${t}</a>`;
- const card=d=>`<div class="card"><div class="bar2" style="margin-top:0"><b>My comments — ${esc(d.by)}</b>${d.done?`<span class="chip">Changes by ${esc(d.done.by)} · ${esc(d.done.at)}</span>`:'<span class="chip s-New-file">not finished</span>'}<span style="flex:1"></span>${link(DOC(d.docId)+'/edit','Open doc')}${link(DOC(d.docId)+'/export?format=pdf','Download PDF')}</div>
-  ${canEdit&&!d.done?'<div class="mut">Pause the video, take a screenshot (Cmd+Shift+Ctrl+4), paste it (Cmd+V) in the doc below and write the timecode and the change.</div>':''}
-  <iframe src="${DOC(d.docId)}/edit?rm=minimal&embedded=true" style="width:100%;height:700px;border:1px solid var(--line);border-radius:10px;background:#fff;margin-top:8px"></iframe>
-  <div class="mut" style="margin-top:6px">${d.done?'Comments by '+esc(d.done.by)+' — Changes done '+esc(d.done.at):'Comments by '+esc(d.by)+' — not finished'}</div>
-  ${canEdit&&!d.done?`<div class="bar2"><button class="p" id="rv_done">Changes done</button><span class="mut">tells the editor your comments are ready</span></div>`:''}</div>`;
- const ask=canEdit?`<input id="rv_nm" placeholder="your name" size="16" value="${esc(mine?mine.by:(NAME()))}"><button class="p" id="rv_open">${mine?'Add more comments':'Open my comments'}</button><button id="rv_ok">No changes - Approved</button><span class="mut">${mine?'Type another name to open or create that reviewer\'s own document.':'Your own document for this version. The editor sees everyone\'s comments combined.'}</span>`:'';
+ if(!i.versions.find(x=>x.v===v))return;
+ if(ROLE!=='Reviewers'){const cs=commentsOf(k,v),sg=ROLE+'|'+k+'|'+v+'|'+cs.map(c=>c.by+c.at).join()+'|'+evOf(k).length+'|'+recSig(i,v);if(box.dataset.d===sg)return;box.dataset.d=sg;
+  box.innerHTML=(ROLE===FIN?recHTML(i,v):'')+`<div class="card"><div class="bar2" style="margin:0"><b>${ROLE==='Editors'?'Changes to fix':'All comments'} (v${v})</b><span style="flex:1"></span><button id="pp">Download PDF</button></div>${combinedCards(i,v)}</div>`;
+  $('#pp').onclick=()=>printPanel(i,v);fillImgs(box);return}
+ const me=revName.trim(),canEdit=v===latest(i),sig='R|'+revName+'|'+canEdit+'|'+recSig(i,v);
+ const ask=canEdit?`<input id="rv_nm" placeholder="your name" size="16" value="${esc(me||NAME())}"><button class="p" id="rv_open">${me?'Add more comments':'Open my comments'}</button><button id="rv_ok">No changes - Approved</button><span class="mut">${me?'Type another name to open that reviewer\'s own box.':'Your own comment box for this version. The editor sees everyone\'s comments together.'}</span>`:'';
  if($('#rvbar'))$('#rvbar').innerHTML=ask;
- box.innerHTML=recHTML(i,v)+(mine?card(mine):'');
-if($('#rv_ok'))$('#rv_ok').onclick=()=>{const nm=$('#rv_nm').value.trim();if(!nm){toast('Type your name first.');return}saveName(nm);send('v_event',{key:k,v,type:'ok',by:nm})};
- if($('#rv_open'))$('#rv_open').onclick=async()=>{const nm=$('#rv_nm').value.trim();if(!nm){toast('Type your name first.');return}saveName(nm);revName=nm;box.dataset.d='';
-  if(docsFor(i,v).some(d=>d.by&&d.by.toLowerCase()===nm.toLowerCase())){renderDoc(i,cur);return}
-  if(!await send('v_newdoc',{key:k,v,by:nm}))revName=''};
- if($('#rv_done'))$('#rv_done').onclick=()=>send('v_event',{key:k,v,type:'changes',docId:mine.docId,by:mine.by})}
+ if($('#rv_ok'))$('#rv_ok').onclick=()=>{const nm=$('#rv_nm').value.trim();if(!nm){toast('Type your name first.');return}saveName(nm);send('v_event',{key:k,v,type:'ok',by:nm})};
+ if($('#rv_open'))$('#rv_open').onclick=()=>{const nm=$('#rv_nm').value.trim();if(!nm){toast('Type your name first.');return}saveName(nm);revName=nm;box.dataset.d='';renderDoc(i,cur)};
+ if(box.dataset.d===sig)return;box.dataset.d=sig;
+ if(!me||!canEdit){box.innerHTML=recHTML(i,v);return}
+ const done=evOf(k).filter(e=>e.type==='changes'&&e.v===v&&e.by.toLowerCase()===me.toLowerCase()).pop();
+ box.innerHTML=recHTML(i,v)+`<div class="card"><div class="bar2" style="margin-top:0"><b>My comments — ${esc(me)}</b><span id="csave" class="chip">Saved ✓</span>${done?`<span class="chip">Changes by ${esc(done.by)} · ${esc(done.at)}</span>`:''}<span style="flex:1"></span>${gdocLink(k,v,me)}</div>
+  <div class="mut" style="margin-bottom:8px">Write what must change and paste screenshots with Cmd+V (take one with Cmd+Shift+Ctrl+4). Put the timecode in your text. It saves by itself.</div>
+  <div class="cbox" contenteditable="true" data-ph="Type here, paste screenshots with Cmd+V…"></div>
+  <div class="bar2"><button class="p" id="rv_done">Changes done</button><span class="mut">tells the editor your comments are ready</span></div></div>`;
+ const ed=mountBox(i,v,me,box);$('#rv_done').onclick=async()=>{await ed.flush();send('v_event',{key:k,v,type:'changes',by:me})}}
 const setRole=r=>{ROLE=r;try{localStorage.setItem('vr_role',r)}catch(e){}sel=null;pend=null;$('#view').innerHTML='<div class="card mut">Pick a video on the left.</div>';document.querySelectorAll('#roles button').forEach(b=>b.setAttribute('aria-pressed',b.dataset.r===r));renderList()};
 document.querySelectorAll('#roles button').forEach(b=>b.onclick=()=>setRole(b.dataset.r));document.querySelectorAll('#roles button').forEach(b=>b.setAttribute('aria-pressed',b.dataset.r===ROLE));
 $('#fs').onchange=renderList;
