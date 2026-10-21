@@ -59,7 +59,7 @@ async function api(action,body){
   if(action==='v_event'){s.events.push({key:b.key,v:b.v,type:b.type,by:b.by,at:nowS(),docId:b.docId||''});save();return{ok:1}}
   if(action==='v_doc'){DEMO_TREE.forEach(i=>i.versions.forEach(x=>{x.doc=x.doc||'demodoc'+x.v}));return{ok:1}}
   if(action==='v_refresh'){s.docs=s.docs||[];if(!s.docs.some(d=>d.key===b.key&&d.v===b.v&&d.by==='ALL'))s.docs.push({key:b.key,v:b.v,docId:'demoall',by:'ALL',at:nowS()});save();return{ok:1}}
-  if(action==='v_newdoc'){s.docs=s.docs||[];s.docs.push({key:b.key,v:b.v,docId:'demo'+Math.random().toString(36).slice(2,8),by:b.by,at:nowS()});save();return{ok:1}}
+  if(action==='v_newdoc'){s.docs=s.docs||[];const dup=s.docs.find(d=>d.key===b.key&&d.v===b.v&&d.by.toLowerCase()===b.by.toLowerCase());if(!dup){const first='demodoc'+b.v,claimed=s.docs.some(d=>d.key===b.key&&d.v===b.v&&d.docId===first);s.docs.push({key:b.key,v:b.v,docId:claimed?'demo'+Math.random().toString(36).slice(2,8):first,by:b.by,at:nowS()})}save();return{ok:1}}
   if(action==='v_approve'){if(b.pin!=='123456')throw new Error('Wrong PIN (demo PIN is 123456).');s.events.push({key:b.key,v:b.v,type:'approved',by:'Sarosh',at:nowS()});save();return{ok:1}}
 }
 const nowS=()=>new Date().toISOString().slice(0,16).replace('T',' ')+' UTC';
@@ -107,7 +107,7 @@ function renderTags(i,cur){const el=$('#tags');if(!el)return;const v=ROLE==='Edi
  el.innerHTML=ev.length?ev.map(e=>`<span class="chip ${e.type==='changes'?'s-Changes-requested':'s-Approved'}">${e.type==='changes'?'Changes':'OK'} by ${esc(e.by)} — ${esc(e.at)}</span>`).join(' '):'<span class="mut">No reviewer has finished yet.</span>'}
 function renderHist(i){const k=keyOf(i),h=[...evOf(k).map(e=>({at:e.at,t:TAG[e.type](e)})),...D.docs.filter(d=>d.key===k).map(d=>({at:d.at,t:`Extra comments document by ${d.by} (v${d.v})`})),...i.versions.map(v=>({at:v.date||'',t:`v${v.v} file detected${v.name?' ("'+v.name+'")':''}`}))].sort((a,b)=>a.at<b.at?-1:1);
  $('#hist').innerHTML='<div class="sec">History</div><div class="hist">'+(h.map(x=>`<span><b>${esc(x.t)}</b> <span class="mut">${esc(x.at)}</span></span>`).join('')||'<span class="mut">Nothing yet.</span>')+'</div>'}
-const NAME=()=>{try{return localStorage.getItem('vr_name')||''}catch(e){return''}},saveName=v=>{try{localStorage.setItem('vr_name',v)}catch(e){}};
+let revName=(()=>{try{return localStorage.getItem('vr_name')||''}catch(e){return''}})();const NAME=()=>{try{return localStorage.getItem('vr_name')||''}catch(e){return''}},saveName=v=>{try{localStorage.setItem('vr_name',v)}catch(e){}};
 const fixV=i=>{const c=evOf(keyOf(i)).filter(e=>e.type==='changes').pop();return c?c.v:0};   // version whose change list the editor must fix
 async function send(action,b){if(busy){toast('Still saving…');return false}
  const by=(b.by||'').trim();if(!by&&!['v_approve','v_doc'].includes(action)){toast('Type your name next to the button first.');return false}if(by)saveName(by);
@@ -117,7 +117,7 @@ async function send(action,b){if(busy){toast('Still saving…');return false}
 function renderView(keep){const i=item();if(!i){$('#view').innerHTML='';return}
  const src=sources(i);if(!selV||!src.some(s=>s.lab===selV))selV=src[src.length-1].lab;const cur=src.find(s=>s.lab===selV),old=$('#vid');
  if(keep&&old&&old.dataset.id===cur.id){renderHead(i,cur);renderDoc(i,cur);return}   // background refresh: never touch the player or the open doc
- $('#view').innerHTML=`<div class="card"><div class="bar2" id="hd"></div><div class="bar2" id="act"></div>
+ $('#view').innerHTML=`<div class="card"><div class="bar2" id="hd"></div><div class="bar2" id="act"></div><div class="bar2" id="rvbar"></div>
   <iframe id="vid" data-id="${cur.id}" src="https://drive.google.com/file/d/${cur.id}/preview" allow="autoplay; fullscreen" allowfullscreen style="width:100%;aspect-ratio:16/9;border:0;border-radius:10px;background:#000"></iframe><div id="tags" style="margin-top:10px;font-size:13px"></div></div>
   <div style="margin-top:16px" id="docbox"></div><div class="card" style="margin-top:16px" id="hist"></div>`;
  renderHead(i,cur);renderDoc(i,cur)}
@@ -128,11 +128,12 @@ function rounds(i,v){const k=keyOf(i),out=[];for(let r=1;r<v;r++){const all=D.do
  const names=[...new Set(evOf(k).filter(e=>e.type==='changes'&&e.v===r&&e.docId).map(e=>e.by))],fx=evOf(k).filter(e=>e.type==='resubmitted'&&e.v===r+1).pop();out.push({r,all,names,fx})}return out}
 const recSig=(i,v)=>rounds(i,v).map(x=>x.r+x.all.docId+(x.fx?x.fx.by+x.fx.at:'')).join(',');
 function recHTML(i,v){const lk=(u,t)=>`<a class="btn" style="text-decoration:none" target="_blank" rel="noopener" href="${u}">${t}</a>`;
- return rounds(i,v).map(x=>`<div class="card" style="margin-bottom:12px;border-style:dashed"><div class="bar2" style="margin:0"><b>Revision done — changes from v${x.r}</b><span class="mut">${x.names.map(esc).join(', ')} — ${x.fx?'fixed by '+esc(x.fx.by)+' '+esc(x.fx.at):'fix not marked yet'}</span><span style="flex:1"></span>${lk(DOC(x.all.docId)+'/edit','Open doc')}${lk(DOC(x.all.docId)+'/export?format=pdf','Download PDF')}</div><div class="mut">Record of an earlier round (read-only history).</div></div>`).join('')}
+ return rounds(i,v).map(x=>`<div class="card" style="margin-bottom:12px;border-style:dashed"><div class="bar2" style="margin:0"><b>Revision done — changes from v${x.r}</b><span class="mut">${x.names.map(esc).join(', ')} — ${x.fx?'fixed by '+esc(x.fx.by)+' '+esc(x.fx.at):'fix not marked yet'}</span><span style="flex:1"></span>${ROLE==='Sarosh'?lk(DOC(x.all.docId)+'/edit','Open doc')+lk(DOC(x.all.docId)+'/export?format=pdf','Download PDF'):''}</div><div class="mut">Record of an earlier round (read-only history).</div></div>`).join('')}
 function docsFor(i,v){const k=keyOf(i),rec=i.versions.find(x=>x.v===v);if(!rec)return[];
  const evs=evOf(k).filter(e=>e.type==='changes'&&e.v===v&&e.docId),mk=(docId,by)=>{const e=evs.find(x=>x.docId===docId);return{docId,by:e?e.by:by,done:e||null}};
- return[mk(rec.doc,''),...D.docs.filter(d=>d.key===k&&Number(d.v)===v&&d.by!=='ALL').map(d=>mk(d.docId,d.by))]}
-async function renderDoc(i,cur){const box=$('#docbox');if(!box)return;const k=keyOf(i);let v=cur.v;
+ const own=D.docs.find(d=>d.key===k&&Number(d.v)===v&&d.docId===rec.doc);
+ return[mk(rec.doc,own?own.by:''),...D.docs.filter(d=>d.key===k&&Number(d.v)===v&&d.by!=='ALL'&&d.docId!==rec.doc).map(d=>mk(d.docId,d.by))]}
+async function renderDoc(i,cur){const box=$('#docbox');if(!box)return;const k=keyOf(i);let v=cur.v;if(ROLE!=='Reviewers'&&$('#rvbar'))$('#rvbar').innerHTML='';
  if(ROLE==='Editors'){const K=fixV(i),st=status(i);if(!(K&&(st==='Changes requested'||st==='New file'))){box.dataset.d='';box.innerHTML='<div class="card mut">No changes to fix right now.</div>';return}v=K}
  if(!v){box.dataset.d='';box.innerHTML='<div class="card mut">This video is already final.</div>';return}
  const rec=i.versions.find(x=>x.v===v);if(!rec)return;
@@ -148,18 +149,22 @@ if(ROLE!=='Reviewers'){const all=D.docs.find(d=>d.key===k&&Number(d.v)===v&&d.by
    <div class="mut">One document with every reviewer's comments, in the order they finished. It rebuilds when a reviewer presses Changes done (or press Refresh).</div>
    <iframe src="${DOC(all.docId)}/edit?rm=minimal&embedded=true" style="width:100%;height:720px;border:1px solid var(--line);border-radius:10px;background:#fff;margin-top:8px"></iframe></div>`;
   $('#rf').onclick=async()=>{box.dataset.d='';const b=$('#rf');b.disabled=true;b.textContent='Refreshing…';try{await api('v_refresh',{key:k,v});await load()}catch(e){toast('Refresh failed: '+e.message)}renderDoc(i,cur)};return}
- const docs=docsFor(i,v),sig=ROLE+'|'+docs.map(d=>d.docId+':'+(d.done?d.done.by:'')).join(',')+'|'+recSig(i,v);
+ const all=docsFor(i,v),me=revName.trim().toLowerCase(),mine=me?all.find(d=>d.by&&d.by.toLowerCase()===me):null,canEdit=v===latest(i);
+ const sig='R|'+revName+'|'+(mine?mine.docId+':'+(mine.done?mine.done.by:''):'-')+'|'+recSig(i,v);
  if(box.dataset.d===sig)return;box.dataset.d=sig;
- const prev=i.versions.find(x=>x.v===v-1),link=(u,t)=>`<a class="btn" style="text-decoration:none" target="_blank" rel="noopener" href="${u}">${t}</a>`,me=esc(NAME()),canEdit=ROLE==='Reviewers'&&v===latest(i);
- const card=(d,x)=>`<div class="card" style="margin-top:${x?12:0}px"><div class="bar2" style="margin-top:0"><b>${d.by?'Comments by '+esc(d.by):(x?'Comments':'Comments (v'+v+')')}</b>${d.done?`<span class="chip">Changes by ${esc(d.done.by)} · ${esc(d.done.at)}</span>`:'<span class="chip s-New-file">not finished</span>'}<span style="flex:1"></span>${x===0&&prev&&prev.doc?link(DOC(prev.doc)+'/edit','Previous version\'s changes'):''}${link(DOC(d.docId)+'/edit','Open doc')}${link(DOC(d.docId)+'/export?format=pdf','Download PDF')}</div>
-  ${canEdit&&x===0&&!d.done?'<div class="mut">Pause the video, take a screenshot (Cmd+Shift+Ctrl+4), paste it (Cmd+V) in the doc below and write the timecode and the change.</div>':''}
-  <iframe src="${DOC(d.docId)}/edit?rm=minimal&embedded=true" style="width:100%;height:${docs.length>1?560:700}px;border:1px solid var(--line);border-radius:10px;background:#fff;margin-top:8px"></iframe>
-  <div class="mut" style="margin-top:6px">${d.done?'Comments by '+esc(d.done.by)+' — Changes done '+esc(d.done.at):(d.by?'Comments by '+esc(d.by)+' — not finished':'Not finished')}</div>
-  ${canEdit&&!d.done?`<div class="bar2"><input data-nm="${d.docId}" placeholder="your name" size="14" value="${me}"><button class="p" data-done="${d.docId}">Changes done</button></div>`:''}</div>`;
- box.innerHTML=(ROLE==='Reviewers'?recHTML(i,v):'')+(ROLE==='Editors'?`<div class="sec">Changes to fix (v${v}) - ${docs.length} document${docs.length>1?'s':''}</div>`:'')+docs.map(card).join('')+
-  (canEdit?`<div class="card" style="margin-top:12px"><div class="bar2" style="margin-top:0"><input id="nd_by" placeholder="your name" size="14" value="${me}"><button id="nd">Add more comments</button><span class="mut">another reviewer gets their own blank document</span></div></div>`:'');
- box.querySelectorAll('[data-done]').forEach(b=>b.onclick=()=>{const nm=box.querySelector(`[data-nm="${b.dataset.done}"]`).value.trim();if(!nm){toast('Type your name first.');return}send('v_event',{key:k,v,type:'changes',docId:b.dataset.done,by:nm})});
- if($('#nd'))$('#nd').onclick=()=>{const nm=$('#nd_by').value.trim();if(!nm){toast('Type your name first.');return}send('v_newdoc',{key:k,v,by:nm})}}
+ const link=(u,t)=>`<a class="btn" style="text-decoration:none" target="_blank" rel="noopener" href="${u}">${t}</a>`;
+ const card=d=>`<div class="card"><div class="bar2" style="margin-top:0"><b>My comments — ${esc(d.by)}</b>${d.done?`<span class="chip">Changes by ${esc(d.done.by)} · ${esc(d.done.at)}</span>`:'<span class="chip s-New-file">not finished</span>'}<span style="flex:1"></span>${link(DOC(d.docId)+'/edit','Open doc')}${link(DOC(d.docId)+'/export?format=pdf','Download PDF')}</div>
+  ${canEdit&&!d.done?'<div class="mut">Pause the video, take a screenshot (Cmd+Shift+Ctrl+4), paste it (Cmd+V) in the doc below and write the timecode and the change.</div>':''}
+  <iframe src="${DOC(d.docId)}/edit?rm=minimal&embedded=true" style="width:100%;height:700px;border:1px solid var(--line);border-radius:10px;background:#fff;margin-top:8px"></iframe>
+  <div class="mut" style="margin-top:6px">${d.done?'Comments by '+esc(d.done.by)+' — Changes done '+esc(d.done.at):'Comments by '+esc(d.by)+' — not finished'}</div>
+  ${canEdit&&!d.done?`<div class="bar2"><button class="p" id="rv_done">Changes done</button><span class="mut">tells the editor your comments are ready</span></div>`:''}</div>`;
+ const ask=canEdit?`<input id="rv_nm" placeholder="your name" size="16" value="${esc(mine?mine.by:(NAME()))}"><button class="p" id="rv_open">${mine?'Add more comments':'Open my comments'}</button><span class="mut">${mine?'Type another name to open or create that reviewer\'s own document.':'Your own document for this version. The editor sees everyone\'s comments combined.'}</span>`:'';
+ if($('#rvbar'))$('#rvbar').innerHTML=ask;
+ box.innerHTML=recHTML(i,v)+(mine?card(mine):'');
+ if($('#rv_open'))$('#rv_open').onclick=async()=>{const nm=$('#rv_nm').value.trim();if(!nm){toast('Type your name first.');return}saveName(nm);revName=nm;box.dataset.d='';
+  if(docsFor(i,v).some(d=>d.by&&d.by.toLowerCase()===nm.toLowerCase())){renderDoc(i,cur);return}
+  if(!await send('v_newdoc',{key:k,v,by:nm}))revName=''};
+ if($('#rv_done'))$('#rv_done').onclick=()=>send('v_event',{key:k,v,type:'changes',docId:mine.docId,by:mine.by})}
 const setRole=r=>{ROLE=r;try{localStorage.setItem('vr_role',r)}catch(e){}sel=null;pend=null;$('#view').innerHTML='<div class="card mut">Pick a video on the left.</div>';document.querySelectorAll('#roles button').forEach(b=>b.setAttribute('aria-pressed',b.dataset.r===r));renderList()};
 document.querySelectorAll('#roles button').forEach(b=>b.onclick=()=>setRole(b.dataset.r));document.querySelectorAll('#roles button').forEach(b=>b.setAttribute('aria-pressed',b.dataset.r===ROLE));
 $('#fs').onchange=renderList;
