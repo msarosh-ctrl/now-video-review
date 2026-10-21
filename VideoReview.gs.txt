@@ -22,7 +22,8 @@ const VR_SETTLE_MS = 2 * 60 * 1000;                               // ignore file
 const VR_HEAD = {
   VideoNotes: ['id', 'key', 'v', 'tc', 'tcText', 'text', 'by', 'at', 'shotId', 'fixed', 'fixedBy', 'fixedAt'],
   VideoVersions: ['key', 'v', 'fileId', 'origName', 'size', 'date', 'docId'],
-  VideoEvents: ['key', 'v', 'type', 'by', 'at'],   // uploaded | resubmitted | changes | ok | approved
+  VideoEvents: ['key', 'v', 'type', 'by', 'at', 'docId'],   // docId only on 'changes' (which reviewer doc was finished)
+  VideoDocs: ['key', 'v', 'docId', 'by', 'at'],             // extra reviewer docs (the first doc is VideoVersions.docId)   // uploaded | resubmitted | changes | ok | approved
   VideoLog: ['at', 'action', 'key', 'file', 'detail']
 };
 
@@ -56,6 +57,8 @@ function vrLog_(action, key, file, detail) { vrTab_('VideoLog', true).appendRow(
 function vrInit_() {
   Object.keys(VR_HEAD).forEach(function (n) { vrTab_(n, true); });
   const sh = vrTab_('VideoVersions', true);                       // older sheets have 6 columns: add docId
+  const ev = vrTab_('VideoEvents', true);                          // older sheets: add docId column to VideoEvents
+  if (String(ev.getRange(1, 6).getValue()) !== 'docId') { ev.getRange(1, 6).setValue('docId'); ev.getRange(1, 6, ev.getMaxRows(), 1).setNumberFormat('@'); }
   if (String(sh.getRange(1, 7).getValue()) !== 'docId') { sh.getRange(1, 7).setValue('docId'); sh.getRange(1, 7, sh.getMaxRows(), 1).setNumberFormat('@'); }
 }
 
@@ -107,13 +110,8 @@ function vrDocsFolder_() {
   props.setProperty('VR_DOCS', f.getId()); return f;
 }
 /** Doc "<PILLAR> <LANG> <CODE> v<n> - changes": 3-column table Timecode | Screenshot | Change, anyone with the link can EDIT. */
-function vrMakeDoc_(key, v, prevDocId) {
-  const a = key.split('|'), doc = DocumentApp.create(a[0] + ' ' + a[1] + ' ' + a[2] + ' v' + v + ' - changes'), b = doc.getBody();
-  b.appendParagraph(a[0] + ' / ' + a[1] + ' / ' + a[2] + ' - version ' + v + ' - changes').setHeading(DocumentApp.ParagraphHeading.HEADING2);
-  b.appendParagraph('Reviewer: pause the video, take a screenshot (Cmd+Shift+Ctrl+4), paste it with Cmd+V in the Screenshot column, write the timecode and the change. Press Tab in the last cell to add a row. Write your name under the table.');
-  if (prevDocId) { const pp = b.appendParagraph("Previous version's changes (check they are fixed): https://docs.google.com/document/d/" + prevDocId + '/edit'); pp.editAsText().setLinkUrl("https://docs.google.com/document/d/" + prevDocId + '/edit'); }
-  const rows = [['Timecode', 'Screenshot', 'Change']]; for (let i = 0; i < 6; i++) rows.push(['', '', '']);
-  const t = b.appendTable(rows); t.setColumnWidth(0, 80); t.setColumnWidth(1, 260); t.setColumnWidth(2, 120);
+function vrMakeDoc_(key, v, prevDocId, label) {
+  const a = key.split('|'), doc = DocumentApp.create(a[0] + ' ' + a[1] + ' ' + a[2] + ' v' + v + ' - ' + (label ? 'comments by ' + label : 'changes'));   // blank doc: reviewers add their own screenshots/timecodes/notes
   doc.saveAndClose();
   const f = DriveApp.getFileById(doc.getId()); f.moveTo(vrDocsFolder_());
   f.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.EDIT);
@@ -223,7 +221,8 @@ function vrGet_(e) {
         return { id: n.id, key: n.key, v: Number(n.v), tc: Number(n.tc), tcText: n.tcText, text: n.text, by: n.by, at: n.at, shotId: n.shotId, fixed: n.fixed === 'yes', fixedBy: n.fixedBy };
       });
       let unclear = []; try { unclear = JSON.parse(PropertiesService.getScriptProperties().getProperty('VR_UNCLEAR') || '[]'); } catch (_) {}
-      return vrJson_({ ok: true, apiKey: PropertiesService.getScriptProperties().getProperty('VR_API_KEY') || '', tree: vrTree_(), notes: notes, events: vrRows_('VideoEvents').map(function (e) { return { key: e.key, v: Number(e.v), type: e.type, by: e.by, at: e.at }; }), unclear: unclear });
+      return vrJson_({ ok: true, apiKey: PropertiesService.getScriptProperties().getProperty('VR_API_KEY') || '', tree: vrTree_(), notes: notes, events: vrRows_('VideoEvents').map(function (e) { return { key: e.key, v: Number(e.v), type: e.type, by: e.by, at: e.at, docId: e.docId || '' }; }),
+        docs: vrRows_('VideoDocs').map(function (d) { return { key: d.key, v: Number(d.v), docId: d.docId, by: d.by, at: d.at }; }), unclear: unclear });
     }
     if (a === 'v_shot') {                                  // only files inside our shots folder can be fetched
       const f = DriveApp.getFileById(String(e.parameter.id || '')), par = f.getParents();
@@ -267,9 +266,22 @@ function vrPost_(p) {
     }
     if (!by) return vrJson_({ ok: false, code: 'no_name', message: 'Please type your name first.' });
     if (p.action === 'v_event') {                            // name tag + date for every workflow step
-      const t = String(p.type), v = Number(p.v), vs = vrVersions_()[String(p.key)] || [];
+      const t = String(p.type), v = Number(p.v), key = String(p.key), vs = vrVersions_()[key] || [];
       if (['uploaded', 'resubmitted', 'changes', 'ok'].indexOf(t) < 0 || !vs.length || v !== vs[vs.length - 1].v) return vrJson_({ ok: false, code: 'stale', message: 'A newer version arrived - reload the page.' });
-      vrTab_('VideoEvents', true).appendRow([p.key, v, t, by, vrNow_()]); return vrJson_({ ok: true });
+      let docId = '';
+      if (t === 'changes' && p.docId) {                      // which reviewer doc this person finished
+        docId = String(p.docId);
+        const ok = vs[vs.length - 1].doc === docId || vrRows_('VideoDocs').some(function (d) { return d.key === key && Number(d.v) === v && d.docId === docId; });
+        if (!ok) return vrJson_({ ok: false, code: 'bad_doc', message: 'That document does not belong to this version.' });
+        if (vrRows_('VideoEvents').some(function (e) { return e.key === key && Number(e.v) === v && e.type === 'changes' && e.docId === docId; })) return vrJson_({ ok: false, code: 'already', message: 'This document is already marked done.' });
+      }
+      vrTab_('VideoEvents', true).appendRow([key, v, t, by, vrNow_(), docId]); return vrJson_({ ok: true });
+    }
+    if (p.action === 'v_newdoc') {                           // another reviewer gets THEIR OWN blank doc for the same version
+      const key = String(p.key), v = Number(p.v), vs = vrVersions_()[key] || [];
+      if (!vs.length || v !== vs[vs.length - 1].v) return vrJson_({ ok: false, code: 'stale', message: 'A newer version arrived - reload the page.' });
+      const docId = vrMakeDoc_(key, v, '', by);
+      vrTab_('VideoDocs', true).appendRow([key, v, docId, by, vrNow_()]); vrLog_('extra_doc', key, docId, by); return vrJson_({ ok: true, docId: docId });
     }
     if (p.action === 'v_note') {
       if (!/^[^|]+\|[^|]+\|[A-Z]{1,3}\d{2}$/.test(String(p.key))) return vrJson_({ ok: false, code: 'bad_key' });
@@ -322,4 +334,9 @@ function vrApprove_(key, v) {
   vrTab_('VideoEvents', true).appendRow([key, v, 'approved', 'Sarosh', vrNow_()]); vrLog_('approved_copy', key, copy.getId(), 'copied to ' + a[0] + '/VIDEO/' + a[1]);
   CacheService.getScriptCache().remove('vr_finals');
   return vrJson_({ ok: true });
+}
+
+/** one-off: empty the body of every existing review doc (user 21 Oct: blank docs) */
+function vrBlankExistingDocs() {
+  vrRows_('VideoVersions').forEach(function (r) { if (!r.docId) return; try { const d = DocumentApp.openById(r.docId); d.getBody().clear(); d.saveAndClose(); } catch (err) { vrLog_('blank_failed', r.key, r.docId, String(err)); } });
 }

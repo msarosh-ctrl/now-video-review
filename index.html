@@ -30,13 +30,13 @@ video{width:100%;background:#000;border-radius:10px;max-height:58vh}.bar2{displa
 .note:not(:has(img)){grid-template-columns:1fr}.hist{font-size:13px;display:flex;flex-direction:column;gap:4px}.hist span b{font-weight:600}
 #msg{position:fixed;left:50%;transform:translateX(-50%);bottom:16px;background:var(--ink);color:var(--canvas);padding:8px 14px;border-radius:8px;display:none;max-width:90vw}
 #pa{display:none}@media print{body>*:not(#pa){display:none!important}#pa{display:block;color:#000;background:#fff}#pa .n{break-inside:avoid;display:grid;grid-template-columns:240px 1fr;gap:12px;border-top:1px solid #ccc;padding:8px 0}#pa img{width:240px}}
-</style></head><body><div class="wrap"><header class="bar"><div class="brand"><h1>NOW <b>Video Review</b></h1><p id="mode"></p></div><div class="pick"><span class="seg" id="roles"><button data-r="Editors">Editors</button><button data-r="Reviewers">Reviewers</button><button data-r="Sarosh">Sarosh</button></span><label class="mut">Your name <input id="who" placeholder="type your name" size="16"></label><select id="fs"><option value="">All statuses</option><option>New file</option><option>Ready for review</option><option>Changes requested</option><option>Waiting for Sarosh</option><option>Approved</option></select></div></header><main><div class="card" id="list">Loading…</div><div id="view"><div class="card mut">Pick a video on the left.</div></div></main></div><div id="msg"></div><div id="pa"></div>
+</style></head><body><div class="wrap"><header class="bar"><div class="brand"><h1>NOW <b>Video Review</b></h1><p id="mode"></p></div><div class="pick"><span class="seg" id="roles"><button data-r="Editors">Editors</button><button data-r="Reviewers">Reviewers</button><button data-r="Sarosh">Sarosh</button></span><select id="fs"><option value="">All statuses</option><option>New file</option><option>Ready for review</option><option>Changes requested</option><option>Waiting for Sarosh</option><option>Approved</option></select></div></header><main><div class="card" id="list">Loading…</div><div id="view"><div class="card mut">Pick a video on the left.</div></div></main></div><div id="msg"></div><div id="pa"></div>
 <script src="config.js" onerror="void 0"></script>
 <script>
 const CFG=window.VR_CONFIG||{EXEC_URL:'',API_KEY:''}, DEMO=!CFG.EXEC_URL, $=s=>document.querySelector(s);
 const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const Q=new URLSearchParams(location.search), DEMO_BASE=Q.get('demo')==='nocors'?'http://localhost:18766/':'http://localhost:18767/';
-let ROLE=(()=>{try{const r=localStorage.getItem('vr_role');return['Editors','Reviewers','Sarosh'].includes(r)?r:'Editors'}catch(e){return'Editors'}})();let D={tree:[],notes:[],events:[],unclear:[]}, sel=null, selV=null, pend=null, shotCache={}, busy=false, closed=new Set();
+let ROLE=(()=>{try{const r=localStorage.getItem('vr_role');return['Editors','Reviewers','Sarosh'].includes(r)?r:'Editors'}catch(e){return'Editors'}})();let D={docs:[],tree:[],notes:[],events:[],unclear:[]}, sel=null, selV=null, pend=null, shotCache={}, busy=false, closed=new Set();
 function toast(m){const e=$('#msg');e.textContent=m;e.style.display='block';clearTimeout(toast.t);toast.t=setTimeout(()=>e.style.display='none',5000)}
 /* ---------- data layer: Apps Script (live) or localStorage (demo) ---------- */
 const DEMO_TREE=[{pillar:'MINDSET',lang:'ENGLISH',code:'MS01',final:null,versions:[{v:1,id:'demo_v1',name:'MS01 (1).mp4',date:'2026-10-20 09:10 UTC'},{v:2,id:'demo_v2',name:'MS01_fixed.mp4',date:'2026-10-21 12:40 UTC'}]},
@@ -52,11 +52,13 @@ async function api(action,body){
   if(!DEMO){const r=body&&action!=='v_shot'?await fetch(CFG.EXEC_URL,{method:'POST',body:JSON.stringify({action,...body})}):await fetch(CFG.EXEC_URL+'?action='+action+'&'+new URLSearchParams(body||{}));
     const j=await r.json();if(!j.ok)throw new Error(j.message||j.code);return j}
   const s=ls(),save=()=>localStorage.setItem('vr_demo3',JSON.stringify(s)),b=body;
-  if(action==='v_all')return{ok:1,tree:DEMO_TREE,notes:s.notes.map(n=>({...n,image:undefined})),events:s.events,unclear:DEMO_UNCLEAR};
+  if(action==='v_all')return{ok:1,tree:DEMO_TREE,notes:s.notes.map(n=>({...n,image:undefined})),events:s.events,docs:s.docs||[],unclear:DEMO_UNCLEAR};
   if(action==='v_shot')return{ok:1,data:(s.notes.find(n=>n.shotId===b.id)||{}).image};
   if(action==='v_note'){const id='n'+Math.random().toString(36).slice(2,10);s.notes.push({id,key:b.key,v:b.v,tc:b.tc,tcText:b.tcText,text:b.text,by:b.by,at:nowS(),shotId:b.image?id:'',image:b.image,fixed:false});save();return{ok:1}}
   if(action==='v_fixed'){const n=s.notes.find(n=>n.id===b.id);n.fixed=b.on;n.fixedBy=b.by;save();return{ok:1}}
-  if(action==='v_event'){s.events.push({key:b.key,v:b.v,type:b.type,by:b.by,at:nowS()});save();return{ok:1}}
+  if(action==='v_event'){s.events.push({key:b.key,v:b.v,type:b.type,by:b.by,at:nowS(),docId:b.docId||''});save();return{ok:1}}
+  if(action==='v_doc'){DEMO_TREE.forEach(i=>i.versions.forEach(x=>{x.doc=x.doc||'demodoc'+x.v}));return{ok:1}}
+  if(action==='v_newdoc'){s.docs=s.docs||[];s.docs.push({key:b.key,v:b.v,docId:'demo'+Math.random().toString(36).slice(2,8),by:b.by,at:nowS()});save();return{ok:1}}
   if(action==='v_approve'){if(b.pin!=='123456')throw new Error('Wrong PIN (demo PIN is 123456).');s.events.push({key:b.key,v:b.v,type:'approved',by:'Sarosh',at:nowS()});save();return{ok:1}}
 }
 const nowS=()=>new Date().toISOString().slice(0,16).replace('T',' ')+' UTC';
@@ -69,17 +71,18 @@ function status(i){const k=keyOf(i),N=latest(i);if(!N)return i.final?'Approved':
  if(e.v<N)return e.type==='changes'?'Changes requested':'New file';
  return{uploaded:'Ready for review',resubmitted:'Ready for review',changes:'Changes requested',ok:'Waiting for Sarosh'}[e.type]}
 const cls=s=>'s-'+s.replace(/\s/g,'-');
-const TAG={uploaded:e=>`Uploaded by ${e.by}`,resubmitted:e=>`Ready for review after changes - ${e.by}`,changes:e=>`Reviewed by ${e.by} - changes`,ok:e=>`Reviewed by ${e.by} - OK`,approved:e=>`Approved by ${e.by}`};
-async function load(){if(!D.tree.length){try{const c=JSON.parse(localStorage.getItem('vr_cache')||'null');if(c&&c.tree){D=c;renderList()}}catch(e){}}try{D=await api('v_all');try{localStorage.setItem('vr_cache',JSON.stringify({tree:D.tree,notes:D.notes,events:D.events,unclear:D.unclear,apiKey:D.apiKey}))}catch(e){}}catch(e){toast('Could not load: '+e.message);return}renderList();if(sel)renderView(true)}
+const chgNames=i=>{const N=latest(i),n=evOf(keyOf(i)).filter(e=>e.type==='changes'&&e.v===N);return n.length?`<br><span class="mut" style="font-size:12px">${n.map(e=>'Changes by '+esc(e.by)).join(' · ')}</span>`:''};
+const TAG={uploaded:e=>`Uploaded by ${e.by}`,resubmitted:e=>`Ready for review after changes - ${e.by}`,changes:e=>`Changes by ${e.by}`,ok:e=>`Reviewed by ${e.by} - OK`,approved:e=>`Approved by ${e.by}`};
+async function load(){if(!D.tree.length){try{const c=JSON.parse(localStorage.getItem('vr_cache')||'null');if(c&&c.tree){D=c;renderList()}}catch(e){}}try{D=await api('v_all');try{localStorage.setItem('vr_cache',JSON.stringify({tree:D.tree,notes:D.notes,events:D.events,docs:D.docs,unclear:D.unclear,apiKey:D.apiKey}))}catch(e){}}catch(e){toast('Could not load: '+e.message);return}renderList();if(sel)renderView(true)}
 function renderList(){const f=$('#fs').value,g={};
- const show={Editors:()=>true,Reviewers:s=>s==='Ready for review'||s==='New file',Sarosh:s=>s==='Waiting for Sarosh'||s==='Approved'};
- D.tree.forEach(i=>{const s=status(i);if((f&&s!==f)||!show[ROLE](s))return;((g[i.pillar]??={})[i.lang]??=[]).push([i,s])});
+ const show={Editors:()=>true,Reviewers:(s,i)=>s==='Ready for review'||s==='New file'||(s==='Changes requested'&&(evOf(keyOf(i)).pop()||{}).v===latest(i)),Sarosh:s=>s==='Waiting for Sarosh'||s==='Approved'};
+ D.tree.forEach(i=>{const s=status(i);if((f&&s!==f)||!show[ROLE](s,i))return;((g[i.pillar]??={})[i.lang]??=[]).push([i,s])});
  const un=(D.unclear||[]).length?`<div class="prev" style="margin:0 0 8px"><b>${D.unclear.length} file(s) need a name with the video code</b> (e.g. MS01):<br>${D.unclear.map(u=>`<span class="mut">${esc(u.pillar)}/${esc(u.lang)}/${esc(u.name)} - ${esc(u.why)}</span>`).join('<br>')}</div>`:'';
  const op=id=>closed.has(id)?'':'open';
  const todo=ROLE==='Editors'?D.tree.filter(i=>['New file','Changes requested'].includes(status(i))):[];
  const wb='';
  const tb=todo.length?`<div class="sec">To do (${todo.length})</div>${todo.map(i=>`<div class="row" data-k="${esc(keyOf(i))}"><span>${esc(i.pillar)} / ${esc(i.lang)} / ${esc(i.code)}</span><span class="chip ${cls(status(i))}">${status(i)}</span></div>`).join('')}<hr style="border:0;border-top:1px solid var(--line)">`:'';
- $('#list').innerHTML=(ROLE==='Editors'?un:'')+tb+wb+(Object.keys(g).sort().map(p=>`<details data-id="${esc(p)}" ${op(p)}><summary>${esc(p)}</summary>${Object.keys(g[p]).sort().map(l=>`<details data-id="${esc(p+'/'+l)}" ${op(p+'/'+l)} style="margin-left:10px"><summary class="mut">${esc(l)}</summary>${g[p][l].sort((a,b)=>a[0].code.localeCompare(b[0].code)).map(([i,s])=>`<div class="row ${sel===keyOf(i)?'sel':''}" data-k="${esc(keyOf(i))}"><span>${esc(i.code)} <span class="mut">${i.versions.length?'v'+latest(i):''}</span></span><span class="chip ${cls(s)}">${s}</span></div>`).join('')}</details>`).join('')}</details>`).join('')||'<span class="mut">'+({Editors:'No videos yet.',Reviewers:'Nothing is waiting for review.',Sarosh:'Nothing is waiting for you.'})[ROLE]+'</span>');
+ $('#list').innerHTML=(ROLE==='Editors'?un:'')+tb+wb+(Object.keys(g).sort().map(p=>`<details data-id="${esc(p)}" ${op(p)}><summary>${esc(p)}</summary>${Object.keys(g[p]).sort().map(l=>`<details data-id="${esc(p+'/'+l)}" ${op(p+'/'+l)} style="margin-left:10px"><summary class="mut">${esc(l)}</summary>${g[p][l].sort((a,b)=>a[0].code.localeCompare(b[0].code)).map(([i,s])=>`<div class="row ${sel===keyOf(i)?'sel':''}" data-k="${esc(keyOf(i))}"><span>${esc(i.code)} <span class="mut">${i.versions.length?'v'+latest(i):''}</span>${chgNames(i)}</span><span class="chip ${cls(s)}">${s}</span></div>`).join('')}</details>`).join('')}</details>`).join('')||'<span class="mut">'+({Editors:'No videos yet.',Reviewers:'Nothing is waiting for review.',Sarosh:'Nothing is waiting for you.'})[ROLE]+'</span>');
  document.querySelectorAll('#list details').forEach(d=>d.ontoggle=()=>d.open?closed.delete(d.dataset.id):closed.add(d.dataset.id));
  document.querySelectorAll('.row').forEach(r=>r.onclick=()=>{sel=r.dataset.k;selV=null;pend=null;renderList();renderView()})}
 const item=()=>D.tree.find(i=>keyOf(i)===sel);
@@ -87,23 +90,26 @@ function fmt(t){const ms=Math.floor(t*1000),m=Math.floor(ms/60000),s=(ms-m*60000
 function sources(i){const a=i.versions.map(x=>({lab:'v'+x.v,v:x.v,id:x.id,sub:(x.date||'').slice(5,10)}));if(!a.length&&i.final)a.push({lab:'Final',v:0,id:i.final.id,sub:''});return a}
 function actions(i,cur,st){const N=latest(i),isLast=cur.v===N&&N>0;if(!isLast)return'';
  const B=(id,l,c)=>`<button id="${id}" class="${c||''}">${l}</button>`;
- const m={Editors:{'New file':B('a_up','Uploaded','p'),'Changes requested':B('a_re','Ready for review after changes','p')},Reviewers:{'Ready for review':B('a_chg','Changes needed','p')+B('a_ok','No changes'),'New file':B('a_chg','Changes needed','p')+B('a_ok','No changes')},Sarosh:{'Waiting for Sarosh':B('a_ap','Approve (PIN)','p')}}[ROLE];return m[st]||''}
+ const m={Editors:{'New file':B('a_up','Uploaded','p'),'Changes requested':B('a_re','Ready for review after changes','p')},Reviewers:{'Ready for review':B('a_ok','No changes'),'New file':B('a_ok','No changes')},Sarosh:{'Waiting for Sarosh':B('a_ap','Approve (PIN)','p')}}[ROLE];return m[st]||''}
 const WAIT={Editors:{'Ready for review':'Waiting for the reviewer.','Waiting for Sarosh':'Reviewer is happy - waiting for Sarosh.','Approved':'Approved.'},Reviewers:{},Sarosh:{}};
-function renderHead(i,cur){const k=keyOf(i),st=status(i),N=latest(i),ev=(type)=>send('v_event',{key:k,v:N,type}),last=evOf(k).pop();
+function renderHead(i,cur){const k=keyOf(i),st=status(i),N=latest(i),ev=(type)=>send('v_event',{key:k,v:N,type,by:(($('#act_nm')||{}).value||'')}),last=evOf(k).pop();
  $('#hd').innerHTML=`<b style="font-size:16px">${esc(i.pillar)} / ${esc(i.lang)} / ${esc(i.code)}</b><span class="chip ${cls(st)}">${st}</span>
   <span class="tabs">${sources(i).map(s=>`<button aria-pressed="${s.lab===selV}" data-v="${s.lab}">${s.lab}${s.sub?' · '+s.sub:''}</button>`).join('')}</span><span style="flex:1"></span>
 `;
- $('#act').innerHTML=actions(i,cur,st)||(st==='Approved'?`<span class="mut">${esc(last?TAG.approved(last)+', '+last.at:'Approved (final file already in the folder)')}</span>`:`<span class="mut">${cur.v!==N?'Older version: buttons work on the latest.':(WAIT[ROLE]||{})[st]||'Nothing for you to do on this video.'}</span>`);
+ const ac=actions(i,cur,st);$('#act').innerHTML=ac?(ROLE!=='Sarosh'?`<input id="act_nm" placeholder="your name" size="14" value="${esc(NAME())}">`:'')+ac:(st==='Approved'?`<span class="mut">${esc(last?TAG.approved(last)+', '+last.at:'Approved (final file already in the folder)')}</span>`:`<span class="mut">${cur.v!==N?'Older version: buttons work on the latest.':(WAIT[ROLE]||{})[st]||'Nothing for you to do on this video.'}</span>`);
  document.querySelectorAll('.tabs button').forEach(b=>b.onclick=()=>{selV=b.dataset.v;pend=null;renderView()});
  const on=(id,f)=>{const e=$('#'+id);if(e)e.onclick=f};
  on('a_up',()=>ev('uploaded'));on('a_re',()=>ev('resubmitted'));on('a_ok',()=>ev('ok'));on('a_chg',()=>ev('changes'));
  on('a_ap',async()=>{const pin=prompt('Sarosh PIN to approve. This copies the file to the final folder (an existing final goes to _old).');if(pin==null)return;if(await send('v_approve',{key:k,v:N,pin}))toast('Approved - file copied to the final folder')});
- if(ROLE==='Sarosh')renderHist(i);else $('#hist').innerHTML=''}
-function renderHist(i){const k=keyOf(i),h=[...evOf(k).map(e=>({at:e.at,t:TAG[e.type](e)})),...i.versions.map(v=>({at:v.date||'',t:`v${v.v} file detected${v.name?' ("'+v.name+'")':''}`}))].sort((a,b)=>a.at<b.at?-1:1);
+ if(ROLE==='Sarosh')renderHist(i);else $('#hist').innerHTML='';renderTags(i,cur)}
+function renderTags(i,cur){const el=$('#tags');if(!el)return;const v=ROLE==='Editors'?(fixV(i)||cur.v):cur.v,k=keyOf(i),ev=evOf(k).filter(e=>e.v===v&&(e.type==='changes'||e.type==='ok'));
+ el.innerHTML=ev.length?ev.map(e=>`<span class="chip ${e.type==='changes'?'s-Changes-requested':'s-Approved'}">${e.type==='changes'?'Changes':'OK'} by ${esc(e.by)} — ${esc(e.at)}</span>`).join(' '):'<span class="mut">No reviewer has finished yet.</span>'}
+function renderHist(i){const k=keyOf(i),h=[...evOf(k).map(e=>({at:e.at,t:TAG[e.type](e)})),...D.docs.filter(d=>d.key===k).map(d=>({at:d.at,t:`Extra comments document by ${d.by} (v${d.v})`})),...i.versions.map(v=>({at:v.date||'',t:`v${v.v} file detected${v.name?' ("'+v.name+'")':''}`}))].sort((a,b)=>a.at<b.at?-1:1);
  $('#hist').innerHTML='<div class="sec">History</div><div class="hist">'+(h.map(x=>`<span><b>${esc(x.t)}</b> <span class="mut">${esc(x.at)}</span></span>`).join('')||'<span class="mut">Nothing yet.</span>')+'</div>'}
+const NAME=()=>{try{return localStorage.getItem('vr_name')||''}catch(e){return''}},saveName=v=>{try{localStorage.setItem('vr_name',v)}catch(e){}};
 const fixV=i=>{const c=evOf(keyOf(i)).filter(e=>e.type==='changes').pop();return c?c.v:0};   // version whose change list the editor must fix
 async function send(action,b){if(busy){toast('Still saving…');return false}
- const by=$('#who').value.trim();if(!by&&!['v_approve','v_doc'].includes(action)){toast('Type your name first (top right).');return false}
+ const by=(b.by||'').trim();if(!by&&!['v_approve','v_doc'].includes(action)){toast('Type your name next to the button first.');return false}if(by)saveName(by);
  busy=true;document.body.style.cursor='progress';
  try{await api(action,{...b,by});await load();return true}catch(e){toast('Not saved: '+e.message);return false}
  finally{busy=false;document.body.style.cursor=''}}
@@ -111,24 +117,34 @@ function renderView(keep){const i=item();if(!i){$('#view').innerHTML='';return}
  const src=sources(i);if(!selV||!src.some(s=>s.lab===selV))selV=src[src.length-1].lab;const cur=src.find(s=>s.lab===selV),old=$('#vid');
  if(keep&&old&&old.dataset.id===cur.id){renderHead(i,cur);renderDoc(i,cur);return}   // background refresh: never touch the player or the open doc
  $('#view').innerHTML=`<div class="card"><div class="bar2" id="hd"></div><div class="bar2" id="act"></div>
-  <iframe id="vid" data-id="${cur.id}" src="https://drive.google.com/file/d/${cur.id}/preview" allow="autoplay; fullscreen" allowfullscreen style="width:100%;aspect-ratio:16/9;border:0;border-radius:10px;background:#000"></iframe></div>
-  <div class="card" style="margin-top:16px" id="docbox"></div><div class="card" style="margin-top:16px" id="hist"></div>`;
+  <iframe id="vid" data-id="${cur.id}" src="https://drive.google.com/file/d/${cur.id}/preview" allow="autoplay; fullscreen" allowfullscreen style="width:100%;aspect-ratio:16/9;border:0;border-radius:10px;background:#000"></iframe><div id="tags" style="margin-top:10px;font-size:13px"></div></div>
+  <div style="margin-top:16px" id="docbox"></div><div class="card" style="margin-top:16px" id="hist"></div>`;
  renderHead(i,cur);renderDoc(i,cur)}
 /* ---------- the change list = one Google Doc per version (screenshots pasted by the reviewer) ---------- */
 const DOC=id=>'https://docs.google.com/document/d/'+id, creating=new Set();
+function docsFor(i,v){const k=keyOf(i),rec=i.versions.find(x=>x.v===v);if(!rec)return[];
+ const evs=evOf(k).filter(e=>e.type==='changes'&&e.v===v&&e.docId),mk=(docId,by)=>{const e=evs.find(x=>x.docId===docId);return{docId,by:e?e.by:by,done:e||null}};
+ return[mk(rec.doc,''),...D.docs.filter(d=>d.key===k&&Number(d.v)===v).map(d=>mk(d.docId,d.by))]}
 async function renderDoc(i,cur){const box=$('#docbox');if(!box)return;const k=keyOf(i);let v=cur.v;
- if(ROLE==='Editors'){const K=fixV(i),st=status(i);if(!(K&&(st==='Changes requested'||st==='New file'))){box.dataset.d='';box.innerHTML='<div class="mut">No changes to fix right now.</div>';return}v=K}
- if(!v){box.dataset.d='';box.innerHTML='<div class="mut">This video is already final.</div>';return}
+ if(ROLE==='Editors'){const K=fixV(i),st=status(i);if(!(K&&(st==='Changes requested'||st==='New file'))){box.dataset.d='';box.innerHTML='<div class="card mut">No changes to fix right now.</div>';return}v=K}
+ if(!v){box.dataset.d='';box.innerHTML='<div class="card mut">This video is already final.</div>';return}
  const rec=i.versions.find(x=>x.v===v);if(!rec)return;
- if(!rec.doc){if(creating.has(k+v))return;creating.add(k+v);box.innerHTML='<div class="mut">Creating the change document…</div>';
-  try{await api('v_doc',{key:k,v});await load()}catch(e){box.innerHTML='<div class="mut">Could not create the document: '+esc(e.message)+'</div>'}creating.delete(k+v);return}
- if(box.dataset.d===rec.doc)return;box.dataset.d=rec.doc;
- const prev=i.versions.find(x=>x.v===v-1),link=(u,t)=>`<a class="btn" style="text-decoration:none" target="_blank" rel="noopener" href="${u}">${t}</a>`;
- box.innerHTML=`<div class="bar2"><b>${ROLE==='Editors'?'Changes to fix':'Changes'} (v${v})</b><span style="flex:1"></span>${prev&&prev.doc?link(DOC(prev.doc)+'/edit','Previous version\'s changes'):''}${link(DOC(rec.doc)+'/edit','Open doc')}${link(DOC(rec.doc)+'/export?format=pdf','Download PDF')}</div>
- ${ROLE==='Reviewers'?'<div class="mut">Pause the video, take a screenshot (Cmd+Shift+Ctrl+4), paste it (Cmd+V) in the doc below and write the timecode and the change.</div>':''}
- <iframe src="${DOC(rec.doc)}/edit?rm=minimal&embedded=true" style="width:100%;height:700px;border:1px solid var(--line);border-radius:10px;background:#fff;margin-top:8px"></iframe>`}
+ if(!rec.doc){if(creating.has(k+v))return;creating.add(k+v);box.innerHTML='<div class="card mut">Creating the change document…</div>';
+  try{await api('v_doc',{key:k,v});await load()}catch(e){box.innerHTML='<div class="card mut">Could not create the document: '+esc(e.message)+'</div>'}creating.delete(k+v);return}
+ const docs=docsFor(i,v),sig=ROLE+'|'+docs.map(d=>d.docId+':'+(d.done?d.done.by:'')).join(',');
+ if(box.dataset.d===sig)return;box.dataset.d=sig;
+ const prev=i.versions.find(x=>x.v===v-1),link=(u,t)=>`<a class="btn" style="text-decoration:none" target="_blank" rel="noopener" href="${u}">${t}</a>`,me=esc(NAME()),canEdit=ROLE==='Reviewers'&&v===latest(i);
+ const card=(d,x)=>`<div class="card" style="margin-top:${x?12:0}px"><div class="bar2" style="margin-top:0"><b>${d.by?'Comments by '+esc(d.by):(x?'Comments':'Comments (v'+v+')')}</b>${d.done?`<span class="chip">Changes by ${esc(d.done.by)} · ${esc(d.done.at)}</span>`:'<span class="chip s-New-file">not finished</span>'}<span style="flex:1"></span>${x===0&&prev&&prev.doc?link(DOC(prev.doc)+'/edit','Previous version\'s changes'):''}${link(DOC(d.docId)+'/edit','Open doc')}${link(DOC(d.docId)+'/export?format=pdf','Download PDF')}</div>
+  ${canEdit&&x===0&&!d.done?'<div class="mut">Pause the video, take a screenshot (Cmd+Shift+Ctrl+4), paste it (Cmd+V) in the doc below and write the timecode and the change.</div>':''}
+  <iframe src="${DOC(d.docId)}/edit?rm=minimal&embedded=true" style="width:100%;height:${docs.length>1?560:700}px;border:1px solid var(--line);border-radius:10px;background:#fff;margin-top:8px"></iframe>
+  <div class="mut" style="margin-top:6px">${d.done?'Comments by '+esc(d.done.by)+' — Changes done '+esc(d.done.at):(d.by?'Comments by '+esc(d.by)+' — not finished':'Not finished')}</div>
+  ${canEdit&&!d.done?`<div class="bar2"><input data-nm="${d.docId}" placeholder="your name" size="14" value="${me}"><button class="p" data-done="${d.docId}">Changes done</button></div>`:''}</div>`;
+ box.innerHTML=(ROLE==='Editors'?`<div class="sec">Changes to fix (v${v}) - ${docs.length} document${docs.length>1?'s':''}</div>`:'')+docs.map(card).join('')+
+  (canEdit?`<div class="card" style="margin-top:12px"><div class="bar2" style="margin-top:0"><input id="nd_by" placeholder="your name" size="14" value="${me}"><button id="nd">Add more comments</button><span class="mut">another reviewer gets their own blank document</span></div></div>`:'');
+ box.querySelectorAll('[data-done]').forEach(b=>b.onclick=()=>{const nm=box.querySelector(`[data-nm="${b.dataset.done}"]`).value.trim();if(!nm){toast('Type your name first.');return}send('v_event',{key:k,v,type:'changes',docId:b.dataset.done,by:nm})});
+ if($('#nd'))$('#nd').onclick=()=>{const nm=$('#nd_by').value.trim();if(!nm){toast('Type your name first.');return}send('v_newdoc',{key:k,v,by:nm})}}
 const setRole=r=>{ROLE=r;try{localStorage.setItem('vr_role',r)}catch(e){}sel=null;pend=null;$('#view').innerHTML='<div class="card mut">Pick a video on the left.</div>';document.querySelectorAll('#roles button').forEach(b=>b.setAttribute('aria-pressed',b.dataset.r===r));renderList()};
 document.querySelectorAll('#roles button').forEach(b=>b.onclick=()=>setRole(b.dataset.r));document.querySelectorAll('#roles button').forEach(b=>b.setAttribute('aria-pressed',b.dataset.r===ROLE));
-$('#fs').onchange=renderList;$('#who').value=localStorage.getItem('vr_name')||'';$('#who').oninput=e=>localStorage.setItem('vr_name',e.target.value);
+$('#fs').onchange=renderList;
 $('#mode').textContent=DEMO?'DEMO - local data, not the live sheet':'Editors upload, reviewers check, Sarosh approves';load();setInterval(load,120000);
 </script></body></html>
