@@ -198,7 +198,7 @@ async function renderDoc(i,cur){const box=$('#docbox');if(!box)return;const k=ke
 
  const me=revName.trim(),canEdit=v===latest(i),all=commentsOf(k,v);
  const sig='R|'+revName+'|'+canEdit+'|'+recSig(i,v)+'|'+all.map(c=>c.id+':'+c.html.length).join()+'|'+(editState?editState.id:'');
- const ask=canEdit?`<input id="rv_nm" placeholder="e.g. Cami" size="16" value="${esc(me)}"><button class="p" id="rv_open">${me?'Switch name':'Open my comments'}</button><button id="rv_ok">No changes - Approved</button><span class="mut">${me?'Type another name to comment as that reviewer.':'Type your name, then write your comments below.'}</span>`:'';
+ const ask=canEdit?`<input id="rv_nm" placeholder="e.g. Cami" size="16" value="${esc(me)}"><button class="p" id="rv_open">Add comments</button><button id="rv_ok">No changes - Approved</button><span class="mut">${me?'Type another name to comment as that reviewer.':'Type your name, then write your comments below.'}</span>`:'';
  if($('#rvbar'))$('#rvbar').innerHTML=ask;
  if($('#rv_ok'))$('#rv_ok').onclick=()=>{const nm=$('#rv_nm').value.trim();if(!nm){toast('Type your name first.');return}send('v_event',{key:k,v,type:'ok',by:nm})};
  if($('#rv_open'))$('#rv_open').onclick=()=>{const nm=$('#rv_nm').value.trim();if(!nm){toast('Type your name first.');return}revName=nm;editState=null;box.dataset.d='';renderDoc(i,cur)};
