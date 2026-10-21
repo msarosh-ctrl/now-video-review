@@ -111,7 +111,7 @@ function vrDocsFolder_() {
 }
 /** Doc "<PILLAR> <LANG> <CODE> v<n> - changes": 3-column table Timecode | Screenshot | Change, anyone with the link can EDIT. */
 function vrMakeDoc_(key, v, prevDocId, label) {
-  const a = key.split('|'), doc = DocumentApp.create(a[0] + ' ' + a[1] + ' ' + a[2] + ' v' + v + ' - ' + (label ? 'comments by ' + label : 'changes'));   // blank doc: reviewers add their own screenshots/timecodes/notes
+  const a = key.split('|'), doc = DocumentApp.create(a[0] + ' ' + a[1] + ' ' + a[2] + ' v' + v + ' - ' + (label === 'ALL' ? 'all changes' : label ? 'comments by ' + label : 'changes'));   // blank doc: reviewers add their own screenshots/timecodes/notes
   doc.saveAndClose();
   const f = DriveApp.getFileById(doc.getId()); f.moveTo(vrDocsFolder_());
   f.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.EDIT);
@@ -125,6 +125,39 @@ function vrBackfillDocs() {
     const vs = vrVersions_()[r.key] || [], prev = vs.filter(function (x) { return x.v === Number(r.v) - 1; })[0];
     try { sh.getRange(r._row, 7).setValue(vrMakeDoc_(r.key, Number(r.v), prev ? prev.doc : '')); } catch (err) { vrLog_('doc_failed', r.key, '', String(err)); }
   });
+}
+
+/** The editor sees ONE doc: "<...> v<n> - all changes" = every finished reviewer doc in order, each under a heading with the name + date.
+ *  Rebuilt from scratch (copy of the reviewers' elements) whenever someone presses Changes done, and by the page's Refresh link. Reviewer docs are never modified. */
+function vrCombinedId_(key, v, create) {
+  const rows = vrRows_('VideoDocs').filter(function (d) { return d.key === key && Number(d.v) === v && d.by === 'ALL'; });
+  if (rows.length) return rows[0].docId;
+  if (!create) return '';
+  const id = vrMakeDoc_(key, v, '', 'ALL'); vrTab_('VideoDocs', true).appendRow([key, v, id, 'ALL', vrNow_()]); return id;
+}
+function vrRebuildCombined_(key, v) {
+  const vs = vrVersions_()[key] || [], rec = vs.filter(function (x) { return x.v === v; })[0]; if (!rec) return '';
+  const done = vrRows_('VideoEvents').filter(function (e) { return e.key === key && Number(e.v) === v && e.type === 'changes' && e.docId; });
+  if (!done.length) return '';
+  const id = vrCombinedId_(key, v, true), doc = DocumentApp.openById(id), body = doc.getBody(), ET = DocumentApp.ElementType;
+  body.clear();
+  const first = body.getNumChildren() ? body.getChild(0) : null;
+  done.forEach(function (e, n) {                                   // done rows are in sheet order = order the reviewers finished
+    body.appendParagraph('Comments by ' + e.by + ' - ' + e.at).setHeading(DocumentApp.ParagraphHeading.HEADING2);
+    let src; try { src = DocumentApp.openById(e.docId).getBody(); } catch (err) { body.appendParagraph('(could not open ' + e.by + "'s document: " + err + ')'); return; }
+    for (let i = 0; i < src.getNumChildren(); i++) {
+      const el = src.getChild(i), t = el.getType();
+      try {
+        if (t === ET.PARAGRAPH) body.appendParagraph(el.copy());
+        else if (t === ET.LIST_ITEM) body.appendListItem(el.copy());
+        else if (t === ET.TABLE) body.appendTable(el.copy());
+        else if (t === ET.HORIZONTAL_RULE) body.appendHorizontalRule();
+        else if (t !== ET.PAGE_BREAK) body.appendParagraph('(an item of type ' + t + ' was not copied - see ' + e.by + "'s own document)");
+      } catch (err) { body.appendParagraph('(an item could not be copied: ' + err + ')'); }
+    }
+  });
+  doc.saveAndClose(); vrLog_('combined_rebuilt', key, id, 'v' + v + ', ' + done.length + ' reviewer doc(s)');
+  return id;
 }
 
 // ---------- the 15-minute trigger ----------
@@ -258,6 +291,10 @@ function vrPost_(p) {
       if (chk !== 'ok') return vrJson_({ ok: false, code: 'bad_pin', message: 'Wrong PIN.' });
       return vrApprove_(String(p.key), Number(p.v));
     }
+    if (p.action === 'v_refresh') {                          // rebuild the editor's combined doc
+      const v = Number(p.v); try { vrRebuildCombined_(String(p.key), v); } catch (err) { return vrJson_({ ok: false, code: 'rebuild_failed', message: String(err) }); }
+      return vrJson_({ ok: true });
+    }
     if (p.action === 'v_doc') {                              // create the version's doc on first open if the trigger has not yet
       const vs = vrVersions_()[String(p.key)] || [], rec = vs.filter(function (x) { return x.v === Number(p.v); })[0];
       if (!rec) return vrJson_({ ok: false, code: 'bad_version' });
@@ -275,7 +312,9 @@ function vrPost_(p) {
         if (!ok) return vrJson_({ ok: false, code: 'bad_doc', message: 'That document does not belong to this version.' });
         if (vrRows_('VideoEvents').some(function (e) { return e.key === key && Number(e.v) === v && e.type === 'changes' && e.docId === docId; })) return vrJson_({ ok: false, code: 'already', message: 'This document is already marked done.' });
       }
-      vrTab_('VideoEvents', true).appendRow([key, v, t, by, vrNow_(), docId]); return vrJson_({ ok: true });
+      vrTab_('VideoEvents', true).appendRow([key, v, t, by, vrNow_(), docId]);
+      if (t === 'changes' && docId) { try { vrRebuildCombined_(key, v); } catch (err) { vrLog_('combine_failed', key, docId, String(err)); } }
+      return vrJson_({ ok: true });
     }
     if (p.action === 'v_newdoc') {                           // another reviewer gets THEIR OWN blank doc for the same version
       const key = String(p.key), v = Number(p.v), vs = vrVersions_()[key] || [];
