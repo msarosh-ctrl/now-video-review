@@ -3,3 +3,4 @@ Live now: page 78ceb6d + backend Version 7 (Google Docs flow). NOT changed live 
 Done locally: backend VideoReview.gs adds VideoComments tab + v_comment (auto-save upsert, strict sanitizer), v_image (shots folder), v_all.comments; tests 14 groups in work/video_review/test/gs_test.js.
 Next: page (contenteditable box, paste->downscaled JPEG->v_image, debounce save, combined panel + print PDF, Farah link), then deploy backend New version, push page, live check MS03 + cleanup.
 Rule: old actions still work; deploy backend only when page is ready.
+Page works in demo (type, paste image, combined panel). Next: deploy backend v8, push page, live check MS03, cleanup.

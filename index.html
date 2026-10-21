@@ -113,7 +113,7 @@ function renderHead(i,cur){const k=keyOf(i),st=status(i),N=latest(i),ev=(type)=>
  $('#hd').innerHTML=`<b style="font-size:16px">${esc(i.pillar)} / ${esc(i.lang)} / ${esc(i.code)}</b><span class="chip ${cls(st)}">${st}</span>
   <span class="tabs">${sources(i).map(s=>`<button aria-pressed="${s.lab===selV}" data-v="${s.lab}">${s.lab}${s.sub?' · '+s.sub:''}</button>`).join('')}</span><span style="flex:1"></span>
 `;
- const ac=actions(i,cur,st);$('#act').innerHTML=ac?(ROLE!==FIN?`<input id="act_nm" placeholder="your name" size="14" value="${esc(NAME())}">`:'')+ac:(st==='Approved'?`<span class="mut">${esc(last?TAG.approved(last)+', '+last.at:'Approved (final file already in the folder)')}</span>`:`<span class="mut">${cur.v!==N?'Older version: buttons work on the latest.':(WAIT[ROLE]||{})[st]||(ROLE==='Reviewers'?'':'Nothing for you to do on this video.')}</span>`);
+ const ac=actions(i,cur,st);$('#act').innerHTML=ac?(ROLE!==FIN?`<input id="act_nm" placeholder="e.g. Cami" size="14" value="${esc(NAME())}">`:'')+ac:(st==='Approved'?`<span class="mut">${esc(last?TAG.approved(last)+', '+last.at:'Approved (final file already in the folder)')}</span>`:`<span class="mut">${cur.v!==N?'Older version: buttons work on the latest.':(WAIT[ROLE]||{})[st]||(ROLE==='Reviewers'?'':'Nothing for you to do on this video.')}</span>`);
  document.querySelectorAll('.tabs button').forEach(b=>b.onclick=()=>{selV=b.dataset.v;pend=null;renderView()});
  const on=(id,f)=>{const e=$('#'+id);if(e)e.onclick=f};
  on('a_up',()=>send('v_uploaded',{key:k,by:(($('#act_nm')||{}).value||'')}));on('a_re',()=>ev('resubmitted'));on('a_ok',()=>ev('ok'));on('a_chg',()=>ev('changes'));
@@ -123,7 +123,7 @@ function renderTags(i,cur){const el=$('#tags');if(!el)return;const v=ROLE==='Edi
  el.innerHTML=ev.length?ev.map(e=>`<span class="chip ${e.type==='changes'?'s-Changes-requested':'s-Approved'}">${e.type==='changes'?'Changes':'OK'} by ${esc(e.by)} — ${esc(e.at)}</span>`).join(' '):'<span class="mut">No reviewer has finished yet.</span>'}
 function renderHist(i){const k=keyOf(i),h=[...evOf(k).map(e=>({at:e.at,t:TAG[e.type](e)})),...D.docs.filter(d=>d.key===k).map(d=>({at:d.at,t:`Extra comments document by ${d.by} (v${d.v})`})),...i.versions.map(v=>({at:v.date||'',t:`v${v.v} file detected${v.name?' ("'+v.name+'")':''}`}))].sort((a,b)=>a.at<b.at?-1:1);
  $('#hist').innerHTML='<div class="sec">History</div><div class="hist">'+(h.map(x=>`<span><b>${esc(x.t)}</b> <span class="mut">${esc(x.at)}</span></span>`).join('')||'<span class="mut">Nothing yet.</span>')+'</div>'}
-let revName=(()=>{try{return localStorage.getItem('vr_name')||''}catch(e){return''}})();const NAME=()=>{try{return localStorage.getItem('vr_name')||''}catch(e){return''}},saveName=v=>{try{localStorage.setItem('vr_name',v)}catch(e){}};
+let revName='';const NAME=()=>'',saveName=v=>{};
 const fixV=i=>{const c=evOf(keyOf(i)).filter(e=>e.type==='changes').pop();return c?c.v:0};   // version whose change list the editor must fix
 async function send(action,b){if(busy){toast('Still saving…');return false}
  const by=(b.by||'').trim();if(!by&&!['v_approve','v_doc'].includes(action)){toast('Type your name next to the button first.');return false}if(by)saveName(by);
@@ -132,7 +132,7 @@ async function send(action,b){if(busy){toast('Still saving…');return false}
  finally{busy=false;document.body.style.cursor=''}}
 function ghostView(i){const k=keyOf(i);$('#view').innerHTML=`<div class="card"><div class="bar2" style="margin-top:0"><b style="font-size:16px">${esc(i.pillar)} / ${esc(i.lang)} / ${esc(i.code)}</b><span class="chip ${cls('Not uploaded yet')}">Not uploaded yet</span></div>
  <p>Upload the video to <b>For Revision Renders / ${esc(i.pillar)} / ${esc(i.lang)} /</b> on Drive (the file name must contain <b>${esc(i.code)}</b>), then press Uploaded.</p>
- <div class="bar2"><input id="act_nm" placeholder="your name" size="14" value="${esc(NAME())}"><button class="p" id="g_up">Uploaded</button></div></div>`;
+ <div class="bar2"><input id="act_nm" placeholder="e.g. Cami" size="14" value="${esc(NAME())}"><button class="p" id="g_up">Uploaded</button></div></div>`;
  $('#g_up').onclick=async()=>{const nm=$('#act_nm').value.trim();if(await send('v_uploaded',{key:k,by:nm}))toast('Uploaded - the video is now in Reviewers')}}
 function renderView(keep){const i=item();if(!i){$('#view').innerHTML='';return}if(i.ghost){ghostView(i);return}
  const src=sources(i);if(!selV||!src.some(s=>s.lab===selV))selV=(ROLE===FIN&&src.some(s=>s.lab==='Final')?'Final':src[src.length-1].lab);const cur=src.find(s=>s.lab===selV),old=$('#vid');
@@ -187,7 +187,7 @@ async function renderDoc(i,cur){const box=$('#docbox');if(!box)return;const k=ke
   box.innerHTML=(ROLE===FIN?recHTML(i,v):'')+`<div class="card"><div class="bar2" style="margin:0"><b>${ROLE==='Editors'?'Changes to fix':'All comments'} (v${v})</b><span style="flex:1"></span><button id="pp">Download PDF</button></div>${combinedCards(i,v)}</div>`;
   $('#pp').onclick=()=>printPanel(i,v);fillImgs(box);return}
  const me=revName.trim(),canEdit=v===latest(i),sig='R|'+revName+'|'+canEdit+'|'+recSig(i,v);
- const ask=canEdit?`<input id="rv_nm" placeholder="your name" size="16" value="${esc(me||NAME())}"><button class="p" id="rv_open">${me?'Add more comments':'Open my comments'}</button><button id="rv_ok">No changes - Approved</button><span class="mut">${me?'Type another name to open that reviewer\'s own box.':'Your own comment box for this version. The editor sees everyone\'s comments together.'}</span>`:'';
+ const ask=canEdit?`<input id="rv_nm" placeholder="e.g. Cami" size="16" value="${esc(me||NAME())}"><button class="p" id="rv_open">${me?'Add more comments':'Open my comments'}</button><button id="rv_ok">No changes - Approved</button><span class="mut">${me?'Type another name to open that reviewer\'s own box.':'Your own comment box for this version. The editor sees everyone\'s comments together.'}</span>`:'';
  if($('#rvbar'))$('#rvbar').innerHTML=ask;
  if($('#rv_ok'))$('#rv_ok').onclick=()=>{const nm=$('#rv_nm').value.trim();if(!nm){toast('Type your name first.');return}saveName(nm);send('v_event',{key:k,v,type:'ok',by:nm})};
  if($('#rv_open'))$('#rv_open').onclick=()=>{const nm=$('#rv_nm').value.trim();if(!nm){toast('Type your name first.');return}saveName(nm);revName=nm;box.dataset.d='';renderDoc(i,cur)};
