@@ -5,3 +5,5 @@ Next: page (contenteditable box, paste->downscaled JPEG->v_image, debounce save,
 Rule: old actions still work; deploy backend only when page is ready.
 Page works in demo (type, paste image, combined panel). Next: deploy backend v8, push page, live check MS03, cleanup.
 Pushed; backend v8 live. Remaining: live test MS03 + cleanup.
+
+# DONE: own editor live (page ffa57e8, backend Version 8). Test data cleaned. Not done: Editors/Final combined panel only live-checked in demo (no live video in a Changes-requested state), print PDF untested.
