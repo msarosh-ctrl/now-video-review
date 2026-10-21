@@ -176,7 +176,7 @@ if(ROLE!=='Reviewers'){const all=D.docs.find(d=>d.key===k&&Number(d.v)===v&&d.by
   <iframe src="${DOC(d.docId)}/edit?rm=minimal&embedded=true" style="width:100%;height:700px;border:1px solid var(--line);border-radius:10px;background:#fff;margin-top:8px"></iframe>
   <div class="mut" style="margin-top:6px">${d.done?'Comments by '+esc(d.done.by)+' — Changes done '+esc(d.done.at):'Comments by '+esc(d.by)+' — not finished'}</div>
   ${canEdit&&!d.done?`<div class="bar2"><button class="p" id="rv_done">Changes done</button><span class="mut">tells the editor your comments are ready</span></div>`:''}</div>`;
- const ask=canEdit?`<input id="rv_nm" placeholder="your name" size="16" value="${esc(mine?mine.by:(NAME()))}"><button class="p" id="rv_open">${mine?'Add more comments':'Open my comments'}</button><button id="rv_ok">No changes — Approved</button><span class="mut">${mine?'Type another name to open or create that reviewer\'s own document.':'Your own document for this version. The editor sees everyone\'s comments combined.'}</span>`:'';
+ const ask=canEdit?`<input id="rv_nm" placeholder="your name" size="16" value="${esc(mine?mine.by:(NAME()))}"><button class="p" id="rv_open">${mine?'Add more comments':'Open my comments'}</button><button id="rv_ok">No changes - Approved</button><span class="mut">${mine?'Type another name to open or create that reviewer\'s own document.':'Your own document for this version. The editor sees everyone\'s comments combined.'}</span>`:'';
  if($('#rvbar'))$('#rvbar').innerHTML=ask;
  box.innerHTML=recHTML(i,v)+(mine?card(mine):'');
 if($('#rv_ok'))$('#rv_ok').onclick=()=>{const nm=$('#rv_nm').value.trim();if(!nm){toast('Type your name first.');return}saveName(nm);send('v_event',{key:k,v,type:'ok',by:nm})};
