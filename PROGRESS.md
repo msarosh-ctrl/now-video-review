@@ -8,3 +8,5 @@ Pushed; backend v8 live. Remaining: live test MS03 + cleanup.
 
 # DONE: own editor live (page ffa57e8, backend Version 8). Test data cleaned. Not done: Editors/Final combined panel only live-checked in demo (no live video in a Changes-requested state), print PDF untested.
 WIP: item model page committed locally (not pushed). Next: deploy backend v9, import Farah doc comment, push page, live MS03 test+cleanup.
+Pushed page + backend Version 9 deployed. Next: migrate Farah's doc comment, live MS03 test + cleanup.
+DONE: item model live (page c9df297, backend v9), Farah image comment imported (doc had no text, image only), test comments deleted.
