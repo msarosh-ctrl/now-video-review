@@ -92,72 +92,41 @@ const WAIT={Editors:{'Ready for review':'Waiting for the reviewer.','Waiting for
 function renderHead(i,cur){const k=keyOf(i),st=status(i),N=latest(i),ev=(type)=>send('v_event',{key:k,v:N,type}),last=evOf(k).pop();
  $('#hd').innerHTML=`<b style="font-size:16px">${esc(i.pillar)} / ${esc(i.lang)} / ${esc(i.code)}</b><span class="chip ${cls(st)}">${st}</span>
   <span class="tabs">${sources(i).map(s=>`<button aria-pressed="${s.lab===selV}" data-v="${s.lab}">${s.lab}${s.sub?' · '+s.sub:''}</button>`).join('')}</span><span style="flex:1"></span>
-  ${ROLE==='Reviewers'?'':'<button id="pdf">Download PDF</button>'}`;
+`;
  $('#act').innerHTML=actions(i,cur,st)||(st==='Approved'?`<span class="mut">${esc(last?TAG.approved(last)+', '+last.at:'Approved (final file already in the folder)')}</span>`:`<span class="mut">${cur.v!==N?'Older version: buttons work on the latest.':(WAIT[ROLE]||{})[st]||'Nothing for you to do on this video.'}</span>`);
  document.querySelectorAll('.tabs button').forEach(b=>b.onclick=()=>{selV=b.dataset.v;pend=null;renderView()});
- if($('#pdf'))$('#pdf').onclick=()=>pdf(i,cur);
  const on=(id,f)=>{const e=$('#'+id);if(e)e.onclick=f};
- on('a_up',()=>ev('uploaded'));on('a_re',()=>ev('resubmitted'));on('a_ok',()=>ev('ok'));on('a_chg',()=>notesOf(k,N).length?ev('changes'):toast('Add at least one change first (pause, Screenshot + timecode).'));
+ on('a_up',()=>ev('uploaded'));on('a_re',()=>ev('resubmitted'));on('a_ok',()=>ev('ok'));on('a_chg',()=>ev('changes'));
  on('a_ap',async()=>{const pin=prompt('Sarosh PIN to approve. This copies the file to the final folder (an existing final goes to _old).');if(pin==null)return;if(await send('v_approve',{key:k,v:N,pin}))toast('Approved - file copied to the final folder')});
  if(ROLE==='Sarosh')renderHist(i);else $('#hist').innerHTML=''}
 function renderHist(i){const k=keyOf(i),h=[...evOf(k).map(e=>({at:e.at,t:TAG[e.type](e)})),...i.versions.map(v=>({at:v.date||'',t:`v${v.v} file detected${v.name?' ("'+v.name+'")':''}`}))].sort((a,b)=>a.at<b.at?-1:1);
  $('#hist').innerHTML='<div class="sec">History</div><div class="hist">'+(h.map(x=>`<span><b>${esc(x.t)}</b> <span class="mut">${esc(x.at)}</span></span>`).join('')||'<span class="mut">Nothing yet.</span>')+'</div>'}
+const fixV=i=>{const c=evOf(keyOf(i)).filter(e=>e.type==='changes').pop();return c?c.v:0};   // version whose change list the editor must fix
+async function send(action,b){if(busy){toast('Still saving…');return false}
+ const by=$('#who').value.trim();if(!by&&!['v_approve','v_doc'].includes(action)){toast('Type your name first (top right).');return false}
+ busy=true;document.body.style.cursor='progress';
+ try{await api(action,{...b,by});await load();return true}catch(e){toast('Not saved: '+e.message);return false}
+ finally{busy=false;document.body.style.cursor=''}}
 function renderView(keep){const i=item();if(!i){$('#view').innerHTML='';return}
  const src=sources(i);if(!selV||!src.some(s=>s.lab===selV))selV=src[src.length-1].lab;const cur=src.find(s=>s.lab===selV),old=$('#vid');
- if(keep&&old&&old.dataset.id===cur.id){renderHead(i,cur);renderNotes(i,cur);return}   // background refresh: never touch the player
+ if(keep&&old&&old.dataset.id===cur.id){renderHead(i,cur);renderDoc(i,cur);return}   // background refresh: never touch the player or the open doc
  $('#view').innerHTML=`<div class="card"><div class="bar2" id="hd"></div><div class="bar2" id="act"></div>
-  <video id="vid" data-id="${cur.id}" controls preload="metadata" playsinline ${DEMO&&Q.get('demo')==='nocors'?'':'crossorigin="anonymous"'} src="${fileUrl(cur.id)}"></video>
-  <div class="bar2">${ROLE==='Reviewers'?`<button id="shot" ${cur.v?'':'disabled'}>Screenshot + timecode</button>`:''}<span class="mut" id="clock"></span></div>
-  <div id="form"></div></div><div class="card" style="margin-top:16px" id="notes"></div><div class="card" style="margin-top:16px" id="hist"></div>`;
- renderHead(i,cur);const v=$('#vid');v.addEventListener('timeupdate',()=>$('#clock').textContent=fmt(v.currentTime));$('#clock').textContent=fmt(0);
- if($('#shot'))$('#shot').onclick=()=>capture(i,cur);
- v.onerror=()=>toast('Video would not load (check sharing / API key). Notes still work without a screenshot.');
- renderNotes(i,cur);if(pend)renderForm(i,cur)}
-async function send(action,b){if(busy){toast('Still saving…');return false}
- const by=$('#who').value.trim();if(!by&&action!=='v_approve'){toast('Type your name first (top right).');return false}
- busy=true;document.body.style.cursor='progress';
- try{await api(action,{...b,by});await load();return true}catch(e){toast('Not saved: '+e.message);return false}   // refused save keeps the form + typed text
- finally{busy=false;document.body.style.cursor=''}}
-/* ---------- screenshot: canvas first, tab-capture fallback, else timecode-only ---------- */
-async function capture(i,cur){const v=$('#vid');v.pause();const t=v.currentTime;pend={t,tcText:fmt(t),img:null,how:''};
- try{if(!(v.videoWidth>0&&v.readyState>=2))throw{name:'video not loaded'};
-  const w=Math.min(v.videoWidth,960),c=document.createElement('canvas');c.width=w;c.height=Math.round(w*v.videoHeight/v.videoWidth);
-  c.getContext('2d').drawImage(v,0,0,c.width,c.height);pend.img=c.toDataURL('image/jpeg',.82);pend.how='frame grabbed'}
- catch(e){pend.how='canvas blocked ('+e.name+')';
-  try{if(!(v.videoWidth>0))throw 0;const st=await navigator.mediaDevices.getDisplayMedia({video:true,preferCurrentTab:true});const tr=st.getVideoTracks()[0];
-   if(window.CropTarget)await tr.cropTo(await CropTarget.fromElement(v));
-   const h=document.createElement('video');h.srcObject=st;h.muted=true;await h.play();await new Promise(r=>setTimeout(r,400));
-   const c=document.createElement('canvas');c.width=h.videoWidth;c.height=h.videoHeight;c.getContext('2d').drawImage(h,0,0);st.getTracks().forEach(x=>x.stop());
-   pend.img=c.toDataURL('image/jpeg',.82);pend.how='tab capture'}catch(e2){pend.how='no frame (timecode saved; attach an image if you want)'}}
- renderForm(i,cur)}
-function renderForm(i,cur){$('#form').innerHTML=`<div class="prev"><div class="note" style="border:0;padding:0">${pend.img?`<img class="shot" src="${pend.img}">`:'<div class="mut">No image</div>'}
- <div><div>Timecode <b>${pend.tcText}</b> <span class="mut">· ${pend.how}</span></div><textarea id="txt" rows="3" style="width:100%;margin:6px 0" placeholder="What must change here?">${esc(pend.text||'')}</textarea>
- <input type="file" accept="image/*" id="att" ${pend.img?'hidden':''}> <button class="p" id="save">Save change</button> <button id="cancel">Cancel</button></div></div></div>`;
- $('#txt').oninput=e=>pend.text=e.target.value;$('#cancel').onclick=()=>{pend=null;$('#form').innerHTML=''};
- $('#att').onchange=e=>{const f=e.target.files[0];if(!f)return;const im=new Image();im.onload=()=>{const c=document.createElement('canvas');c.width=Math.min(im.width,960);c.height=Math.round(c.width*im.height/im.width);c.getContext('2d').drawImage(im,0,0,c.width,c.height);pend.img=c.toDataURL('image/jpeg',.82);renderForm(i,cur)};im.src=URL.createObjectURL(f)};
- $('#save').onclick=async()=>{if(!(pend.text||'').trim()){toast('Write the change first.');return}
-  if(await send('v_note',{key:keyOf(i),v:cur.v,tc:pend.t,tcText:pend.tcText,text:pend.text,image:pend.img})){pend=null;$('#form').innerHTML=''}}}
-/* ---------- notes list + "was it fixed?" against the previous version ---------- */
-async function shot(n){if(!n.shotId)return'';if(n.image)return n.image;if(shotCache[n.shotId])return shotCache[n.shotId];
- try{return shotCache[n.shotId]=(await api('v_shot',{id:n.shotId})).data}catch(e){return''}}
-function noteHTML(n,chk){return`<div class="note ${n.fixed?'fixed':''}"><img data-n="${esc(n.id)}" alt=""><div><button class="tc" data-t="${+n.tc}">${esc(n.tcText)}</button> <span class="mut">${esc(n.by)} · ${esc(n.at)}</span>
- <div>${esc(n.text)}</div>${chk?`<label><input type="checkbox" data-fix="${esc(n.id)}" ${n.fixed?'checked':''}> fixed in this version</label>`:n.fixed?'<span class="mut">fixed ✔ '+esc(n.fixedBy||'')+'</span>':''}</div></div>`}
-const fixV=i=>{const c=evOf(keyOf(i)).filter(e=>e.type==='changes').pop();return c?c.v:0};   // version whose change list the editor must fix
-function renderNotes(i,cur){const k=keyOf(i),box=$('#notes');if(!box)return;
- if(ROLE==='Editors'){const K=fixV(i),ns=K?notesOf(k,K):[],open=status(i)==='Changes requested'||status(i)==='New file';
-  box.innerHTML=ns.length&&open?`<h3 style="margin:0">Changes to fix (from v${K})</h3><div class="mut">Fix them, upload the new file, then press "Ready for review after changes".</div>${ns.map(n=>noteHTML(n,false)).join('')}`:'<div class="mut">No changes to fix right now.</div>'}
- else{const prev=ROLE==='Reviewers'&&cur.v>1?notesOf(k,cur.v-1):[],mine=cur.v?notesOf(k,cur.v):[];
-  box.innerHTML=(prev.length?`<h3 style="margin:0">Notes from v${cur.v-1} — was it fixed?</h3><div class="mut">Click a time to jump there in ${cur.lab}, then tick it.</div>${prev.map(n=>noteHTML(n,true)).join('')}<hr>`:'')+
-  `<h3 style="margin:0">Changes on ${cur.lab} (${mine.length})</h3>${mine.map(n=>noteHTML(n,false)).join('')||'<div class="mut">'+(ROLE==='Reviewers'&&cur.v?'None yet. Pause the video and press Screenshot + timecode.':'None.')+'</div>'}`}
- box.querySelectorAll('.tc').forEach(b=>b.onclick=()=>{$('#vid').currentTime=+b.dataset.t});
- box.querySelectorAll('[data-fix]').forEach(c=>c.onchange=async()=>{if(!await send('v_fixed',{id:c.dataset.fix,on:c.checked}))c.checked=!c.checked});
- box.querySelectorAll('img[data-n]').forEach(async im=>{const n=D.notes.find(x=>x.id===im.dataset.n);const s=await shot(n);s?im.src=s:im.remove()})}
-/* ---------- PDF: print-ready change list (browser: Save as PDF) ---------- */
-async function pdf(i,cur){const V=ROLE==='Editors'?fixV(i):cur.v,ns=V?notesOf(keyOf(i),V):[];cur={...cur,lab:'v'+V};if(!ns.length){toast('No changes on this version.');return}
- const imgs=await Promise.all(ns.map(shot));
- $('#pa').innerHTML=`<h2>${esc(i.pillar)} / ${esc(i.lang)} / ${esc(i.code)} — ${cur.lab} — change list</h2><p>${new Date().toISOString().slice(0,10)} · ${ns.length} changes</p>`+
-  ns.map((n,x)=>`<div class="n"><div>${imgs[x]?`<img src="${imgs[x]}">`:''}</div><div><b>${x+1}. ${esc(n.tcText)}</b> <small>${esc(n.by)}</small><p>${esc(n.text)}</p></div></div>`).join('');
- await new Promise(r=>setTimeout(r,300));window.print()}
+  <iframe id="vid" data-id="${cur.id}" src="https://drive.google.com/file/d/${cur.id}/preview" allow="autoplay; fullscreen" allowfullscreen style="width:100%;aspect-ratio:16/9;border:0;border-radius:10px;background:#000"></iframe></div>
+  <div class="card" style="margin-top:16px" id="docbox"></div><div class="card" style="margin-top:16px" id="hist"></div>`;
+ renderHead(i,cur);renderDoc(i,cur)}
+/* ---------- the change list = one Google Doc per version (screenshots pasted by the reviewer) ---------- */
+const DOC=id=>'https://docs.google.com/document/d/'+id, creating=new Set();
+async function renderDoc(i,cur){const box=$('#docbox');if(!box)return;const k=keyOf(i);let v=cur.v;
+ if(ROLE==='Editors'){const K=fixV(i),st=status(i);if(!(K&&(st==='Changes requested'||st==='New file'))){box.dataset.d='';box.innerHTML='<div class="mut">No changes to fix right now.</div>';return}v=K}
+ if(!v){box.dataset.d='';box.innerHTML='<div class="mut">This video is already final.</div>';return}
+ const rec=i.versions.find(x=>x.v===v);if(!rec)return;
+ if(!rec.doc){if(creating.has(k+v))return;creating.add(k+v);box.innerHTML='<div class="mut">Creating the change document…</div>';
+  try{await api('v_doc',{key:k,v});await load()}catch(e){box.innerHTML='<div class="mut">Could not create the document: '+esc(e.message)+'</div>'}creating.delete(k+v);return}
+ if(box.dataset.d===rec.doc)return;box.dataset.d=rec.doc;
+ const prev=i.versions.find(x=>x.v===v-1),link=(u,t)=>`<a class="btn" style="text-decoration:none" target="_blank" rel="noopener" href="${u}">${t}</a>`;
+ box.innerHTML=`<div class="bar2"><b>${ROLE==='Editors'?'Changes to fix':'Changes'} (v${v})</b><span style="flex:1"></span>${prev&&prev.doc?link(DOC(prev.doc)+'/edit','Previous version\'s changes'):''}${link(DOC(rec.doc)+'/edit','Open doc')}${link(DOC(rec.doc)+'/export?format=pdf','Download PDF')}</div>
+ ${ROLE==='Reviewers'?'<div class="mut">Pause the video, take a screenshot (Cmd+Shift+Ctrl+4), paste it (Cmd+V) in the Screenshot column, write the timecode and the change. Press Tab in the last cell to add a row.</div>':''}
+ <iframe src="${DOC(rec.doc)}/edit?rm=minimal&embedded=true" style="width:100%;height:700px;border:1px solid var(--line);border-radius:10px;background:#fff;margin-top:8px"></iframe>`}
 const setRole=r=>{ROLE=r;try{localStorage.setItem('vr_role',r)}catch(e){}sel=null;pend=null;$('#view').innerHTML='<div class="card mut">Pick a video on the left.</div>';document.querySelectorAll('#roles button').forEach(b=>b.setAttribute('aria-pressed',b.dataset.r===r));renderList()};
 document.querySelectorAll('#roles button').forEach(b=>b.onclick=()=>setRole(b.dataset.r));document.querySelectorAll('#roles button').forEach(b=>b.setAttribute('aria-pressed',b.dataset.r===ROLE));
 $('#fs').onchange=renderList;$('#who').value=localStorage.getItem('vr_name')||'';$('#who').oninput=e=>localStorage.setItem('vr_name',e.target.value);

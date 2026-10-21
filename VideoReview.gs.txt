@@ -21,7 +21,7 @@ const VR_PREFIX = { 'MINDSET': 'MS', 'START NOW': 'SH', 'PROTECT': 'P' };  // on
 const VR_SETTLE_MS = 2 * 60 * 1000;                               // ignore files modified in the last 2 min (still uploading)
 const VR_HEAD = {
   VideoNotes: ['id', 'key', 'v', 'tc', 'tcText', 'text', 'by', 'at', 'shotId', 'fixed', 'fixedBy', 'fixedAt'],
-  VideoVersions: ['key', 'v', 'fileId', 'origName', 'size', 'date'],
+  VideoVersions: ['key', 'v', 'fileId', 'origName', 'size', 'date', 'docId'],
   VideoEvents: ['key', 'v', 'type', 'by', 'at'],   // uploaded | resubmitted | changes | ok | approved
   VideoLog: ['at', 'action', 'key', 'file', 'detail']
 };
@@ -53,7 +53,11 @@ function vrRows_(name) {
 function vrNow_(d) { return Utilities.formatDate(d || new Date(), 'Etc/UTC', 'yyyy-MM-dd HH:mm') + ' UTC'; }
 function vrBy_(s) { return String(s || '').replace(/[\r\n\t]+/g, ' ').trim().slice(0, 60); }
 function vrLog_(action, key, file, detail) { vrTab_('VideoLog', true).appendRow([vrNow_(), action, key || '', file || '', detail || '']); }
-function vrInit_() { Object.keys(VR_HEAD).forEach(function (n) { vrTab_(n, true); }); }
+function vrInit_() {
+  Object.keys(VR_HEAD).forEach(function (n) { vrTab_(n, true); });
+  const sh = vrTab_('VideoVersions', true);                       // older sheets have 6 columns: add docId
+  if (String(sh.getRange(1, 7).getValue()) !== 'docId') { sh.getRange(1, 7).setValue('docId'); sh.getRange(1, 7, sh.getMaxRows(), 1).setNumberFormat('@'); }
+}
 
 // ---------- Drive helpers ----------
 function vrSub_(parent, name, create) { const it = parent.getFoldersByName(name); if (it.hasNext()) return it.next(); return create ? parent.createFolder(name) : null; }
@@ -82,14 +86,47 @@ function vrCodes_(name) {                                   // unique video code
 }
 function vrVersions_() {                                    // key -> [{v,fileId,origName,size,date}] sorted
   const out = {};
-  vrRows_('VideoVersions').forEach(function (r) { (out[r.key] = out[r.key] || []).push({ v: Number(r.v), id: r.fileId, name: r.origName, size: Number(r.size), date: r.date }); });
+  vrRows_('VideoVersions').forEach(function (r) { (out[r.key] = out[r.key] || []).push({ v: Number(r.v), id: r.fileId, name: r.origName, size: Number(r.size), date: r.date, doc: r.docId || '' }); });
   Object.keys(out).forEach(function (k) { out[k].sort(function (a, b) { return a.v - b.v; }); });
   return out;
 }
 function vrAddVersion_(key, file, origName) {
   const vs = vrVersions_()[key] || [], v = vs.length ? vs[vs.length - 1].v + 1 : 1;
-  vrTab_('VideoVersions', true).appendRow([key, v, file.getId(), origName, file.getSize(), vrNow_(file.getLastUpdated())]);
+  const prev = vs.length ? vs[vs.length - 1].doc : '';
+  let doc = ''; try { doc = vrMakeDoc_(key, v, prev); } catch (err) { vrLog_('doc_failed', key, '', String(err)); }
+  vrTab_('VideoVersions', true).appendRow([key, v, file.getId(), origName, file.getSize(), vrNow_(file.getLastUpdated()), doc]);
   return v;
+}
+
+// ---------- one Google Doc per version: the change list (reviewers paste screenshots) ----------
+function vrDocsFolder_() {
+  const props = PropertiesService.getScriptProperties(), id = props.getProperty('VR_DOCS');
+  if (id) { try { return DriveApp.getFolderById(id); } catch (_) {} }
+  const par = DriveApp.getFileById(SpreadsheetApp.getActiveSpreadsheet().getId()).getParents();
+  const f = (par.hasNext() ? par.next() : DriveApp.getRootFolder()).createFolder('NOW VIDEO REVIEW DOCS');
+  props.setProperty('VR_DOCS', f.getId()); return f;
+}
+/** Doc "<PILLAR> <LANG> <CODE> v<n> - changes": 3-column table Timecode | Screenshot | Change, anyone with the link can EDIT. */
+function vrMakeDoc_(key, v, prevDocId) {
+  const a = key.split('|'), doc = DocumentApp.create(a[0] + ' ' + a[1] + ' ' + a[2] + ' v' + v + ' - changes'), b = doc.getBody();
+  b.appendParagraph(a[0] + ' / ' + a[1] + ' / ' + a[2] + ' - version ' + v + ' - changes').setHeading(DocumentApp.ParagraphHeading.HEADING2);
+  b.appendParagraph('Reviewer: pause the video, take a screenshot (Cmd+Shift+Ctrl+4), paste it with Cmd+V in the Screenshot column, write the timecode and the change. Press Tab in the last cell to add a row. Write your name under the table.');
+  if (prevDocId) { const pp = b.appendParagraph("Previous version's changes (check they are fixed): https://docs.google.com/document/d/" + prevDocId + '/edit'); pp.editAsText().setLinkUrl("https://docs.google.com/document/d/" + prevDocId + '/edit'); }
+  const rows = [['Timecode', 'Screenshot', 'Change']]; for (let i = 0; i < 6; i++) rows.push(['', '', '']);
+  const t = b.appendTable(rows); t.setColumnWidth(0, 80); t.setColumnWidth(1, 260); t.setColumnWidth(2, 120);
+  doc.saveAndClose();
+  const f = DriveApp.getFileById(doc.getId()); f.moveTo(vrDocsFolder_());
+  f.setSharing(DriveApp.Access.ANYONE_WITH_LINK, DriveApp.Permission.EDIT);
+  return doc.getId();
+}
+/** make sure every version has a doc (run by hand once for existing files; also runs inside the trigger) */
+function vrBackfillDocs() {
+  vrInit_(); const sh = vrTab_('VideoVersions', true);
+  vrRows_('VideoVersions').forEach(function (r) {
+    if (r.docId) return;
+    const vs = vrVersions_()[r.key] || [], prev = vs.filter(function (x) { return x.v === Number(r.v) - 1; })[0];
+    try { sh.getRange(r._row, 7).setValue(vrMakeDoc_(r.key, Number(r.v), prev ? prev.doc : '')); } catch (err) { vrLog_('doc_failed', r.key, '', String(err)); }
+  });
 }
 
 // ---------- the 15-minute trigger ----------
@@ -111,6 +148,7 @@ function vrIngestAll() {
         try { vrIngestFolder_(L, p, lang, unclear); } catch (err) { vrLog_('error', p + '|' + lang, '', String(err)); }
       }
     });
+    vrBackfillDocs();
     PropertiesService.getScriptProperties().setProperty('VR_UNCLEAR', JSON.stringify(unclear.slice(0, 40)));
     CacheService.getScriptCache().remove('vr_finals');
   } catch (err) { try { vrLog_('error', '', '', String(err)); } catch (_) {} }
@@ -221,11 +259,16 @@ function vrPost_(p) {
       if (chk !== 'ok') return vrJson_({ ok: false, code: 'bad_pin', message: 'Wrong PIN.' });
       return vrApprove_(String(p.key), Number(p.v));
     }
+    if (p.action === 'v_doc') {                              // create the version's doc on first open if the trigger has not yet
+      const vs = vrVersions_()[String(p.key)] || [], rec = vs.filter(function (x) { return x.v === Number(p.v); })[0];
+      if (!rec) return vrJson_({ ok: false, code: 'bad_version' });
+      if (rec.doc) return vrJson_({ ok: true, docId: rec.doc });
+      vrBackfillDocs(); return vrJson_({ ok: true });
+    }
     if (!by) return vrJson_({ ok: false, code: 'no_name', message: 'Please type your name first.' });
     if (p.action === 'v_event') {                            // name tag + date for every workflow step
       const t = String(p.type), v = Number(p.v), vs = vrVersions_()[String(p.key)] || [];
       if (['uploaded', 'resubmitted', 'changes', 'ok'].indexOf(t) < 0 || !vs.length || v !== vs[vs.length - 1].v) return vrJson_({ ok: false, code: 'stale', message: 'A newer version arrived - reload the page.' });
-      if (t === 'changes' && !vrRows_('VideoNotes').some(function (n) { return n.key === p.key && Number(n.v) === v; })) return vrJson_({ ok: false, code: 'no_notes', message: 'Add at least one change first.' });
       vrTab_('VideoEvents', true).appendRow([p.key, v, t, by, vrNow_()]); return vrJson_({ ok: true });
     }
     if (p.action === 'v_note') {
