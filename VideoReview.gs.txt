@@ -1,0 +1,282 @@
+/**
+ * NOW Video Review - standalone backend (own Apps Script project + own sheet).
+ *
+ * Drive flow (user, 21 Oct):
+ *  1. He drops a freelancer file (any name) into  My Drive/NOW VIDEO ANIMATIONS FOR EDITORS/NEW VIDEOS/For Revision Renders/<PILLAR>/<LANG>/
+ *  2. A time trigger (vrIngestAll, every 15 min) finds the code in the name (MS01, P03, SH01 ...), moves the previous <CODE>.mp4
+ *     to <PILLAR>/<LANG>/_old/<CODE>_v<n>_<date>.mp4 and renames the new file to <CODE>.mp4 = new version. Unclear name -> untouched + flagged on the page.
+ *  3. Workflow events (name + date, tab VideoEvents): editor 'Uploaded' / 'Ready after changes'; reviewer 'Changes needed' / 'No changes';
+ *     his PIN 'Approve' COPIES <CODE>.mp4 to NEW NOW MATERIALS/<PILLAR>/VIDEO/<LANG>/<CODE>.mp4 (review copy stays; an existing final goes to that folder's _old/ first).
+ * Never deletes, never overwrites (a taken name gets _2, _3 ...). Every move is logged in tab VideoLog. File ids never change on move/rename,
+ * so notes/versions keep pointing at the right video.
+ *
+ * STANDALONE project (nothing in the HTML review backend / Code.gs is touched): create a NEW Google Sheet "NOW Video Review",
+ * Extensions > Apps Script, paste this file, deploy it as its own Web app (Execute as: Me, Access: Anyone) -> its own URL.
+ * Script properties: VR_PIN = Sarosh's approve PIN (6+ characters); VR_API_KEY = the Drive API key (referrer-restricted; sent to the page so it can stream). Optional VR_INBOX = id of "For Revision Renders".
+ */
+const VR_ROOT = '1CERVmZFpTSjshzrXo0Yp0nKz_usqrOBw';           // NEW NOW MATERIALS (finals live in <PILLAR>/VIDEO/<LANG>/)
+const VR_PILLARS = ['GROW', 'MAKE', 'MINDSET', 'PROTECT', 'START NOW'];
+const VR_INBOX_PATH = ['NOW VIDEO ANIMATIONS FOR EDITORS', 'NEW VIDEOS', 'For Revision Renders'];
+const VR_PREFIX = { 'MINDSET': 'MS', 'START NOW': 'SH', 'PROTECT': 'P' };  // only used for a warning in VideoLog
+const VR_SETTLE_MS = 2 * 60 * 1000;                               // ignore files modified in the last 2 min (still uploading)
+const VR_HEAD = {
+  VideoNotes: ['id', 'key', 'v', 'tc', 'tcText', 'text', 'by', 'at', 'shotId', 'fixed', 'fixedBy', 'fixedAt'],
+  VideoVersions: ['key', 'v', 'fileId', 'origName', 'size', 'date'],
+  VideoEvents: ['key', 'v', 'type', 'by', 'at'],   // uploaded | resubmitted | changes | ok | approved
+  VideoLog: ['at', 'action', 'key', 'file', 'detail']
+};
+
+function vrJson_(o) { return ContentService.createTextOutput(JSON.stringify(o)).setMimeType(ContentService.MimeType.JSON); }
+function doGet(e) { return vrGet_(e || { parameter: {} }); }
+function doPost(e) {
+  const lock = LockService.getScriptLock();
+  if (!lock.tryLock(15000)) return vrJson_({ ok: false, code: 'busy', message: 'Try again in a moment.' });
+  try { return vrPost_(JSON.parse((e && e.postData && e.postData.contents) || '{}')); }
+  catch (err) { return vrJson_({ ok: false, code: 'write_failed', message: String(err) }); }
+  finally { lock.releaseLock(); }
+}
+
+/** create=false (GET path) never creates a sheet, so reads cannot race. All columns are plain text (no =formula / number mangling). */
+function vrTab_(name, create) {
+  const ss = SpreadsheetApp.getActiveSpreadsheet(); let sh = ss.getSheetByName(name);
+  if (!sh && create) {
+    sh = ss.insertSheet(name); sh.appendRow(VR_HEAD[name]); sh.setFrozenRows(1);
+    sh.getRange(1, 1, sh.getMaxRows(), VR_HEAD[name].length).setNumberFormat('@');
+  }
+  return sh;
+}
+function vrRows_(name) {
+  const sh = vrTab_(name, false); if (!sh) return [];
+  const v = sh.getDataRange().getValues(); const h = v.shift();
+  return v.map(function (r, i) { const o = { _row: i + 2 }; h.forEach(function (k, j) { o[k] = r[j]; }); return o; });
+}
+function vrNow_(d) { return Utilities.formatDate(d || new Date(), 'Etc/UTC', 'yyyy-MM-dd HH:mm') + ' UTC'; }
+function vrBy_(s) { return String(s || '').replace(/[\r\n\t]+/g, ' ').trim().slice(0, 60); }
+function vrLog_(action, key, file, detail) { vrTab_('VideoLog', true).appendRow([vrNow_(), action, key || '', file || '', detail || '']); }
+function vrInit_() { Object.keys(VR_HEAD).forEach(function (n) { vrTab_(n, true); }); }
+
+// ---------- Drive helpers ----------
+function vrSub_(parent, name, create) { const it = parent.getFoldersByName(name); if (it.hasNext()) return it.next(); return create ? parent.createFolder(name) : null; }
+function vrInbox_() {
+  const id = PropertiesService.getScriptProperties().getProperty('VR_INBOX');
+  if (id) return DriveApp.getFolderById(id);
+  let f = DriveApp.getRootFolder();
+  for (let i = 0; i < VR_INBOX_PATH.length && f; i++) f = vrSub_(f, VR_INBOX_PATH[i], false);
+  return f;
+}
+/** free file name inside a folder: never overwrite -> add _2, _3 ... */
+function vrFreeName_(folder, name) {
+  const m = /^(.*?)(\.[^.]*)?$/.exec(name); let n = name, i = 2;
+  while (folder.getFilesByName(n).hasNext()) { n = m[1] + '_' + i + (m[2] || ''); i++; }
+  return n;
+}
+/** move FIRST, then rename (a failed move leaves the file untouched; a failed rename leaves it safely in the target folder). Name is checked free in the target before the move. */
+function vrMoveInto_(file, folder, newName) {
+  const free = vrFreeName_(folder, newName); file.moveTo(folder);
+  try { file.setName(free); } catch (err) { vrLog_('rename_failed', '', file.getId(), String(err)); }
+}
+function vrCodes_(name) {                                   // unique video codes found in a file name, e.g. "MS01 (1).mp4" -> ['MS01']
+  const base = String(name).replace(/\.[^.]*$/, '').toUpperCase(), re = /(^|[^A-Z0-9])([A-Z]{1,3}\d{2})(?![A-Z0-9])/g, out = []; let m;
+  while ((m = re.exec(base))) if (out.indexOf(m[2]) < 0 && !/^V\d\d$/.test(m[2])) out.push(m[2]);   // _v12 is a version tag, not a code
+  return out;
+}
+function vrVersions_() {                                    // key -> [{v,fileId,origName,size,date}] sorted
+  const out = {};
+  vrRows_('VideoVersions').forEach(function (r) { (out[r.key] = out[r.key] || []).push({ v: Number(r.v), id: r.fileId, name: r.origName, size: Number(r.size), date: r.date }); });
+  Object.keys(out).forEach(function (k) { out[k].sort(function (a, b) { return a.v - b.v; }); });
+  return out;
+}
+function vrAddVersion_(key, file, origName) {
+  const vs = vrVersions_()[key] || [], v = vs.length ? vs[vs.length - 1].v + 1 : 1;
+  vrTab_('VideoVersions', true).appendRow([key, v, file.getId(), origName, file.getSize(), vrNow_(file.getLastUpdated())]);
+  return v;
+}
+
+// ---------- the 15-minute trigger ----------
+/** Run vrInstallTrigger() ONCE by hand after deploying. */
+function vrInstallTrigger() {
+  ScriptApp.getProjectTriggers().forEach(function (t) { if (t.getHandlerFunction() === 'vrIngestAll') ScriptApp.deleteTrigger(t); });
+  ScriptApp.newTrigger('vrIngestAll').timeBased().everyMinutes(15).create();
+}
+function vrIngestAll() {
+  const lock = LockService.getScriptLock(); if (!lock.tryLock(25000)) return;
+  try {
+    vrInit_();
+    const inbox = vrInbox_(), unclear = []; if (!inbox) throw new Error('For Revision Renders folder not found');
+    VR_PILLARS.forEach(function (p) {
+      const pf = vrSub_(inbox, p, false); if (!pf) return;
+      const lfs = pf.getFolders();
+      while (lfs.hasNext()) {
+        const L = lfs.next(), lang = L.getName(); if (lang.charAt(0) === '_') continue;
+        try { vrIngestFolder_(L, p, lang, unclear); } catch (err) { vrLog_('error', p + '|' + lang, '', String(err)); }
+      }
+    });
+    PropertiesService.getScriptProperties().setProperty('VR_UNCLEAR', JSON.stringify(unclear.slice(0, 40)));
+    CacheService.getScriptCache().remove('vr_finals');
+  } catch (err) { try { vrLog_('error', '', '', String(err)); } catch (_) {} }
+  finally { lock.releaseLock(); }
+}
+function vrIngestFolder_(L, p, lang, unclear) {
+  const todo = [], now = Date.now(), fs = L.getFiles(), exact = {}, vers = vrVersions_();
+  const settled = function (f) { return now - f.getLastUpdated().getTime() >= VR_SETTLE_MS; };
+  while (fs.hasNext()) {
+    const f = fs.next(), name = f.getName(), ex = /^([A-Z]{1,3}\d{2})\.mp4$/.exec(name);
+    if (ex) { (exact[ex[1]] = exact[ex[1]] || []).push(f); continue; }
+    if (!settled(f)) continue;                                                     // still uploading: next run
+    const codes = vrCodes_(name), isMp4 = /\.mp4$/i.test(name);
+    if (!isMp4 || codes.length !== 1) { unclear.push({ pillar: p, lang: lang, name: name, why: !isMp4 ? 'not an .mp4' : codes.length ? 'several codes in the name' : 'no code in the name' }); continue; }
+    todo.push({ f: f, code: codes[0], name: name, t: f.getLastUpdated().getTime() });
+  }
+  const cur = {};
+  Object.keys(exact).forEach(function (code) {
+    const key = p + '|' + lang + '|' + code, vs = vers[key] || [], lastId = vs.length ? vs[vs.length - 1].id : '';
+    let list = exact[code].slice().sort(function (a, b) { return b.getLastUpdated().getTime() - a.getLastUpdated().getTime(); });   // newest first
+    const reg = list.filter(function (f) { return f.getId() === lastId; })[0] || list[0];
+    list.forEach(function (f) { if (f !== reg) unclear.push({ pillar: p, lang: lang, name: f.getName(), why: 'second file called ' + code + '.mp4 (left untouched)' }); });
+    if (!vs.some(function (x) { return x.id === reg.getId(); }) && !settled(reg)) return;   // a fresh hand-placed <CODE>.mp4 waits too
+    cur[code] = reg;
+    if (!vs.some(function (x) { return x.id === reg.getId(); })) vrAddVersion_(key, reg, reg.getName());   // hand-placed file becomes a version
+  });
+  todo.sort(function (a, b) { return a.t - b.t; });                                  // oldest first: later upload = newest version
+  todo.forEach(function (t) {
+    const key = p + '|' + lang + '|' + t.code, old = cur[t.code], pre = VR_PREFIX[p];
+    if (pre && t.code.replace(/\d+$/, '') !== pre) vrLog_('warn_code_pillar', key, t.f.getId(), 'code ' + t.code + ' in a ' + p + ' folder (expected ' + pre + '##) - ingested anyway');
+    if (old) {                                                                       // previous version -> _old with its number + date (move first)
+      const vs = vrVersions_()[key] || [], n = vs.length ? vs[vs.length - 1].v : 1;
+      const dst = vrSub_(L, '_old', true), to = t.code + '_v' + n + '_' + Utilities.formatDate(old.getLastUpdated(), 'Etc/UTC', 'yyyy-MM-dd_HHmm') + '.mp4';
+      vrMoveInto_(old, dst, to); vrLog_('to_old', key, old.getId(), to); delete cur[t.code];
+    }
+    t.f.setName(t.code + '.mp4'); cur[t.code] = t.f;
+    const v = vrAddVersion_(key, t.f, t.name);
+    vrLog_('new_version', key, t.f.getId(), 'v' + v + ' from "' + t.name + '"');
+  });
+}
+
+// ---------- reads ----------
+/** finals = <CODE>.mp4 files in NEW NOW MATERIALS/<PILLAR>/VIDEO/<LANG>/ (read-only scan, cached 5 min) */
+function vrFinals_() {
+  const cache = CacheService.getScriptCache(), hit = cache.get('vr_finals'); if (hit) return JSON.parse(hit);
+  const out = [], root = DriveApp.getFolderById(VR_ROOT);
+  VR_PILLARS.forEach(function (p) {
+    const pf = vrSub_(root, p, false), vf = pf && vrSub_(pf, 'VIDEO', false); if (!vf) return;
+    const lf = vf.getFolders();
+    while (lf.hasNext()) {
+      const L = lf.next(), fs = L.getFiles();
+      while (fs.hasNext()) { const f = fs.next(), m = /^([A-Z]{1,3}\d{2})\.mp4$/.exec(f.getName()); if (m) out.push({ pillar: p, lang: L.getName(), code: m[1], id: f.getId() }); }
+    }
+  });
+  const txt = JSON.stringify(out); if (txt.length < 95000) cache.put('vr_finals', txt, 300);
+  return out;
+}
+function vrTree_() {
+  const vers = vrVersions_(), items = {};
+  Object.keys(vers).forEach(function (k) { const a = k.split('|'); items[k] = { pillar: a[0], lang: a[1], code: a[2], final: null, versions: vers[k] }; });
+  vrFinals_().forEach(function (f) {
+    const k = f.pillar + '|' + f.lang + '|' + f.code;
+    items[k] = items[k] || { pillar: f.pillar, lang: f.lang, code: f.code, final: null, versions: [] }; items[k].final = { id: f.id };
+  });
+  return Object.keys(items).map(function (k) { return items[k]; });
+}
+function vrGet_(e) {
+  try {
+    const a = e.parameter.action;
+    if (a === 'v_all') {
+      const notes = vrRows_('VideoNotes').map(function (n) {
+        return { id: n.id, key: n.key, v: Number(n.v), tc: Number(n.tc), tcText: n.tcText, text: n.text, by: n.by, at: n.at, shotId: n.shotId, fixed: n.fixed === 'yes', fixedBy: n.fixedBy };
+      });
+      let unclear = []; try { unclear = JSON.parse(PropertiesService.getScriptProperties().getProperty('VR_UNCLEAR') || '[]'); } catch (_) {}
+      return vrJson_({ ok: true, apiKey: PropertiesService.getScriptProperties().getProperty('VR_API_KEY') || '', tree: vrTree_(), notes: notes, events: vrRows_('VideoEvents').map(function (e) { return { key: e.key, v: Number(e.v), type: e.type, by: e.by, at: e.at }; }), unclear: unclear });
+    }
+    if (a === 'v_shot') {                                  // only files inside our shots folder can be fetched
+      const f = DriveApp.getFileById(String(e.parameter.id || '')), par = f.getParents();
+      if (!par.hasNext() || par.next().getId() !== vrShots_().getId()) return vrJson_({ ok: false, code: 'bad_shot' });
+      return vrJson_({ ok: true, data: 'data:image/jpeg;base64,' + Utilities.base64Encode(f.getBlob().getBytes()) });
+    }
+    return vrJson_({ ok: false, code: 'bad_action' });
+  } catch (err) { return vrJson_({ ok: false, code: 'read_failed', message: String(err) }); }
+}
+function vrShots_() {
+  const props = PropertiesService.getScriptProperties(), id = props.getProperty('VR_SHOTS');
+  if (id) { try { return DriveApp.getFolderById(id); } catch (_) {} }
+  const par = DriveApp.getFileById(SpreadsheetApp.getActiveSpreadsheet().getId()).getParents();
+  const f = (par.hasNext() ? par.next() : DriveApp.getRootFolder()).createFolder('NOW VIDEO REVIEW SHOTS');
+  props.setProperty('VR_SHOTS', f.getId()); return f;
+}
+
+// ---------- writes (called from doPost, which already holds the script lock) ----------
+function vrPinOk_(pin) {
+  const cache = CacheService.getScriptCache(), n = Number(cache.get('vr_pinfail') || 0);
+  if (n >= 5) return 'locked';
+  const want = PropertiesService.getScriptProperties().getProperty('VR_PIN');
+  if (want && String(pin) === want) return 'ok';
+  cache.put('vr_pinfail', String(n + 1), 600); return 'bad';
+}
+function vrPost_(p) {
+  try {
+    vrInit_();
+    const by = vrBy_(p.by);
+    if (p.action === 'v_approve') {                          // only Sarosh's PIN action; copies the file, never moves the review copy
+      const chk = vrPinOk_(p.pin);
+      if (chk === 'locked') return vrJson_({ ok: false, code: 'locked', message: 'Too many wrong PINs. Try again in 10 minutes.' });
+      if (chk !== 'ok') return vrJson_({ ok: false, code: 'bad_pin', message: 'Wrong PIN.' });
+      return vrApprove_(String(p.key), Number(p.v));
+    }
+    if (!by) return vrJson_({ ok: false, code: 'no_name', message: 'Please type your name first.' });
+    if (p.action === 'v_event') {                            // name tag + date for every workflow step
+      const t = String(p.type), v = Number(p.v), vs = vrVersions_()[String(p.key)] || [];
+      if (['uploaded', 'resubmitted', 'changes', 'ok'].indexOf(t) < 0 || !vs.length || v !== vs[vs.length - 1].v) return vrJson_({ ok: false, code: 'stale', message: 'A newer version arrived - reload the page.' });
+      if (t === 'changes' && !vrRows_('VideoNotes').some(function (n) { return n.key === p.key && Number(n.v) === v; })) return vrJson_({ ok: false, code: 'no_notes', message: 'Add at least one change first.' });
+      vrTab_('VideoEvents', true).appendRow([p.key, v, t, by, vrNow_()]); return vrJson_({ ok: true });
+    }
+    if (p.action === 'v_note') {
+      if (!/^[^|]+\|[^|]+\|[A-Z]{1,3}\d{2}$/.test(String(p.key))) return vrJson_({ ok: false, code: 'bad_key' });
+      const text = String(p.text || '').trim().slice(0, 2000), tc = Number(p.tc), v = Number(p.v);
+      if (!text || !(tc >= 0) || !(v >= 1)) return vrJson_({ ok: false, code: 'bad_note', message: 'Write the change first.' });
+      let shotId = '';
+      if (p.image) {
+        const m = /^data:image\/jpeg;base64,([A-Za-z0-9+\/=]+)$/.exec(p.image);
+        if (!m || m[1].length > 3000000) return vrJson_({ ok: false, code: 'bad_image', message: 'Screenshot was empty - save without it or try again.' });
+        shotId = vrShots_().createFile(Utilities.newBlob(Utilities.base64Decode(m[1]), 'image/jpeg', p.key.replace(/[|\s]/g, '_') + '_v' + v + '_' + Utilities.getUuid().slice(0, 6) + '.jpg')).getId();
+      }
+      const nid = 'n' + Utilities.getUuid().replace(/-/g, '').slice(0, 8);     // letter prefix: Sheets can never read it as a number
+      vrTab_('VideoNotes', true).appendRow([nid, p.key, v, tc, String(p.tcText || ''), text, by, vrNow_(), shotId, '', '', '']);
+      return vrJson_({ ok: true, id: nid, shotId: shotId });
+    }
+    if (p.action === 'v_fixed') {
+      const r = vrRows_('VideoNotes').filter(function (n) { return n.id === String(p.id); })[0];
+      if (!r) return vrJson_({ ok: false, code: 'bad_note' });
+      vrTab_('VideoNotes', true).getRange(r._row, 10, 1, 3).setValues([[p.on ? 'yes' : '', p.on ? by : '', p.on ? vrNow_() : '']]);
+      return vrJson_({ ok: true });
+    }
+    return vrJson_({ ok: false, code: 'bad_action' });
+  } catch (err) { return vrJson_({ ok: false, code: 'write_failed', message: String(err) }); }
+}
+/** PIN "Approve": COPY <inbox>/<PILLAR>/<LANG>/<CODE>.mp4 -> NEW NOW MATERIALS/<PILLAR>/VIDEO/<LANG>/<CODE>.mp4 (existing final -> that folder's _old/). */
+function vrApprove_(key, v) {
+  const a = key.split('|'); if (a.length !== 3 || VR_PILLARS.indexOf(a[0]) < 0) return vrJson_({ ok: false, code: 'bad_key' });
+  const vs = vrVersions_()[key] || [], last = vs[vs.length - 1];
+  if (!last || last.v !== v) return vrJson_({ ok: false, code: 'stale', message: 'A newer version arrived - reload the page.' });
+  const ev = vrRows_('VideoEvents').filter(function (e) { return e.key === key; }).pop();
+  if (!ev || ev.type !== 'ok' || Number(ev.v) !== v) return vrJson_({ ok: false, code: 'not_ok', message: 'The reviewer has not approved this version.' });
+  const inbox = vrInbox_(), pf = inbox && vrSub_(inbox, a[0], false), L = pf && vrSub_(pf, a[1], false);
+  const cur = L && L.getFilesByName(a[2] + '.mp4'); if (!cur || !cur.hasNext()) return vrJson_({ ok: false, code: 'no_file', message: a[2] + '.mp4 is not in the review folder.' });
+  const file = cur.next(); if (file.getId() !== last.id) return vrJson_({ ok: false, code: 'stale', message: 'The file in the folder is not the reviewed version.' });
+  const root = DriveApp.getFolderById(VR_ROOT), pfin = vrSub_(root, a[0], false), vf = pfin && vrSub_(pfin, 'VIDEO', false), dest = vf && vrSub_(vf, a[1], false);
+  if (!dest) return vrJson_({ ok: false, code: 'no_dest', message: 'Final folder ' + a[0] + '/VIDEO/' + a[1] + ' not found.' });
+  const ex = dest.getFilesByName(a[2] + '.mp4'), olds = [];
+  while (ex.hasNext()) olds.push(ex.next());
+  const moved = [];
+  olds.forEach(function (o) {                              // existing final -> _old (dated), never overwritten
+    const od = vrSub_(dest, '_old', true), to = a[2] + '_final_' + Utilities.formatDate(o.getLastUpdated(), 'Etc/UTC', 'yyyy-MM-dd_HHmm') + '.mp4', orig = o.getName();
+    vrMoveInto_(o, od, to); moved.push({ f: o, name: orig }); vrLog_('final_to_old', key, o.getId(), to);
+  });
+  let copy;
+  try { copy = file.makeCopy(a[2] + '.mp4', dest); }
+  catch (err) {                                            // copy failed: put the old final back so the folder is never left empty
+    moved.forEach(function (m) { try { m.f.moveTo(dest); m.f.setName(m.name); } catch (e2) { vrLog_('restore_failed', key, m.f.getId(), String(e2)); } });
+    vrLog_('approve_failed', key, file.getId(), String(err)); return vrJson_({ ok: false, code: 'copy_failed', message: 'Copy failed, nothing changed: ' + err });
+  }
+  vrTab_('VideoEvents', true).appendRow([key, v, 'approved', 'Sarosh', vrNow_()]); vrLog_('approved_copy', key, copy.getId(), 'copied to ' + a[0] + '/VIDEO/' + a[1]);
+  CacheService.getScriptCache().remove('vr_finals');
+  return vrJson_({ ok: true });
+}

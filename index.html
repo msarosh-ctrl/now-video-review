@@ -1,0 +1,165 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>NOW Video Review</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600&family=Noto+Sans+JP:wght@400;500&family=Noto+Sans:wght@400;500&display=swap">
+<style>
+/* tokens copied from the translation review page (not linked, that page is untouched) */
+:root{--ink:#0B1023;--canvas:#FBFBF7;--card:#FFFFFF;--line:#E3E4EC;--muted:#5B6077;--violet:#7B4DFF;--blue:#4D7CFF;--green:#00A86B;--amber:#B86E00;--amber-bg:#FFF4E0;--edit-bg:#F2ECFF;
+ --grad:linear-gradient(112deg,#A259FF,#4D7CFF 52%,#00D084);--f-ui:'Poppins',system-ui,-apple-system,sans-serif;--f-text:'Noto Sans','Noto Sans JP','Poppins',system-ui,sans-serif;color-scheme:light}
+@media (prefers-color-scheme:dark){:root{--ink:#ECEEF6;--canvas:#0C0F1C;--card:#141829;--line:#262B42;--muted:#9AA0BA;--violet:#A98BFF;--blue:#86A6FF;--green:#38D69B;--amber:#FFB547;--amber-bg:#2D2410;--edit-bg:#241D3D;color-scheme:dark}}
+*{box-sizing:border-box}body{margin:0;background:var(--canvas);color:var(--ink);font-family:var(--f-ui);font-size:14px;letter-spacing:-.01em}
+.wrap{max-width:1180px;margin:0 auto;padding:0 20px 60px}
+header.bar{position:sticky;top:0;z-index:5;background:var(--canvas);border-bottom:1px solid var(--line);padding:14px 0}
+.brand{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap}.brand h1{font-size:22px;font-weight:600;margin:0;letter-spacing:-.04em}
+.brand h1 b{background:var(--grad);-webkit-background-clip:text;background-clip:text;color:transparent}.brand p{margin:0;color:var(--muted);font-size:13px}
+.pick{display:flex;flex-wrap:wrap;gap:10px;margin-top:12px;align-items:center}
+input,select,textarea{font:inherit;color:inherit;background:var(--card);border:1px solid var(--line);border-radius:8px;padding:6px 10px}
+.btn,button{font:500 13px var(--f-ui);color:var(--ink);border:1px solid var(--line);background:var(--card);border-radius:8px;padding:7px 12px;cursor:pointer}
+button.p{background:var(--ink);color:var(--canvas);border-color:var(--ink)}button:disabled{opacity:.4;cursor:default}button:focus-visible,input:focus-visible,textarea:focus-visible{outline:2px solid var(--blue);outline-offset:2px}
+main{display:grid;grid-template-columns:330px 1fr;gap:20px;margin-top:18px}@media(max-width:900px){main{grid-template-columns:1fr}}
+.card{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:14px}
+summary{cursor:pointer;font-weight:600;padding:4px 0}.row{display:flex;justify-content:space-between;gap:8px;align-items:center;padding:7px 8px;border-radius:8px;cursor:pointer}
+.row:hover,.row.sel{background:var(--edit-bg)}.chip{display:inline-flex;padding:3px 10px;border-radius:999px;background:var(--edit-bg);color:var(--violet);font-weight:500;font-size:12px;white-space:nowrap}
+.s-New-file,.s-Changes-requested{background:var(--amber-bg);color:var(--amber)}.s-Waiting-for-Sarosh{background:var(--grad);color:#fff}.s-Approved{background:#e3f7ee;color:var(--green)}@media(prefers-color-scheme:dark){.s-Approved{background:#12302a}}
+.sec{font-size:12px;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin:6px 0}
+video{width:100%;background:#000;border-radius:10px;max-height:58vh}.bar2{display:flex;gap:8px;flex-wrap:wrap;align-items:center;margin:10px 0}
+.seg{display:flex;gap:4px;background:var(--card);border:1px solid var(--line);border-radius:10px;padding:3px}.seg button{border:0;background:transparent;color:var(--muted)}.seg button[aria-pressed=true]{background:var(--ink);color:var(--canvas)}.tabs button[aria-pressed=true]{background:var(--ink);color:var(--canvas)}.note{display:grid;grid-template-columns:150px 1fr;gap:12px;padding:12px 0;border-top:1px solid var(--line)}
+.note img,.shot{width:150px;border-radius:8px;border:1px solid var(--line);background:#000;display:block}.tc{font-variant-numeric:tabular-nums;color:var(--blue);cursor:pointer;font-weight:600;border:0;background:none;padding:0}
+.mut{color:var(--muted);font-size:13px}.fixed{opacity:.55}.prev{border:1.5px dashed var(--line);border-radius:10px;padding:10px;margin-top:8px}
+.note:not(:has(img)){grid-template-columns:1fr}.hist{font-size:13px;display:flex;flex-direction:column;gap:4px}.hist span b{font-weight:600}
+#msg{position:fixed;left:50%;transform:translateX(-50%);bottom:16px;background:var(--ink);color:var(--canvas);padding:8px 14px;border-radius:8px;display:none;max-width:90vw}
+#pa{display:none}@media print{body>*:not(#pa){display:none!important}#pa{display:block;color:#000;background:#fff}#pa .n{break-inside:avoid;display:grid;grid-template-columns:240px 1fr;gap:12px;border-top:1px solid #ccc;padding:8px 0}#pa img{width:240px}}
+</style></head><body><div class="wrap"><header class="bar"><div class="brand"><h1>NOW <b>Video Review</b></h1><p id="mode"></p></div><div class="pick"><span class="seg" id="roles"><button data-r="Editors">Editors</button><button data-r="Reviewers">Reviewers</button><button data-r="Sarosh">Sarosh</button></span><label class="mut">Your name <input id="who" placeholder="type your name" size="16"></label><select id="fs"><option value="">All statuses</option><option>New file</option><option>Ready for review</option><option>Changes requested</option><option>Waiting for Sarosh</option><option>Approved</option></select></div></header><main><div class="card" id="list">Loading…</div><div id="view"><div class="card mut">Pick a video on the left.</div></div></main></div><div id="msg"></div><div id="pa"></div>
+<script src="config.js" onerror="void 0"></script>
+<script>
+const CFG=window.VR_CONFIG||{EXEC_URL:'',API_KEY:''}, DEMO=!CFG.EXEC_URL, $=s=>document.querySelector(s);
+const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const Q=new URLSearchParams(location.search), DEMO_BASE=Q.get('demo')==='nocors'?'http://localhost:18766/':'http://localhost:18767/';
+let ROLE=(()=>{try{const r=localStorage.getItem('vr_role');return['Editors','Reviewers','Sarosh'].includes(r)?r:'Editors'}catch(e){return'Editors'}})();let D={tree:[],notes:[],events:[],unclear:[]}, sel=null, selV=null, pend=null, shotCache={}, busy=false, closed=new Set();
+function toast(m){const e=$('#msg');e.textContent=m;e.style.display='block';clearTimeout(toast.t);toast.t=setTimeout(()=>e.style.display='none',5000)}
+/* ---------- data layer: Apps Script (live) or localStorage (demo) ---------- */
+const DEMO_TREE=[{pillar:'MINDSET',lang:'ENGLISH',code:'MS01',final:null,versions:[{v:1,id:'demo_v1',name:'MS01 (1).mp4',date:'2026-10-20 09:10 UTC'},{v:2,id:'demo_v2',name:'MS01_fixed.mp4',date:'2026-10-21 12:40 UTC'}]},
+ {pillar:'MINDSET',lang:'ENGLISH',code:'MS02',final:null,versions:[{v:1,id:'demo_v1',name:'MS02.mp4',date:'2026-10-21 08:00 UTC'}]},
+ {pillar:'MINDSET',lang:'GERMAN',code:'MS01',final:{id:'demo_v1'},versions:[]},
+ {pillar:'PROTECT',lang:'ITALIAN',code:'P01',final:null,versions:[{v:1,id:'demo_v1',name:'P01 ita.mp4',date:'2026-10-21 07:00 UTC'}]}];
+const DEMO_UNCLEAR=[{pillar:'MINDSET',lang:'POLISH',name:'final render.mp4',why:'no code in the name'}];
+const SEED={notes:[{id:'nseed1',key:'MINDSET|ENGLISH|MS01',v:1,tc:12.4,tcText:'00:12.400 (f372)',text:'Title is cut off on the right edge.',by:'Anna',at:'2026-10-20 10:05 UTC',shotId:'',fixed:false}],
+ events:[{key:'MINDSET|ENGLISH|MS01',v:1,type:'uploaded',by:'Ed',at:'2026-10-20 09:12 UTC'},{key:'MINDSET|ENGLISH|MS01',v:1,type:'changes',by:'Anna',at:'2026-10-20 10:06 UTC'},{key:'MINDSET|ENGLISH|MS01',v:2,type:'resubmitted',by:'Ed',at:'2026-10-21 12:45 UTC'},
+ {key:'MINDSET|ENGLISH|MS02',v:1,type:'uploaded',by:'Ed',at:'2026-10-21 08:05 UTC'},{key:'MINDSET|ENGLISH|MS02',v:1,type:'ok',by:'Anna',at:'2026-10-21 09:30 UTC'}]};
+const ls=()=>JSON.parse(localStorage.getItem('vr_demo3')||JSON.stringify(SEED));
+async function api(action,body){
+  if(!DEMO){const r=body&&action!=='v_shot'?await fetch(CFG.EXEC_URL,{method:'POST',body:JSON.stringify({action,...body})}):await fetch(CFG.EXEC_URL+'?action='+action+'&'+new URLSearchParams(body||{}));
+    const j=await r.json();if(!j.ok)throw new Error(j.message||j.code);return j}
+  const s=ls(),save=()=>localStorage.setItem('vr_demo3',JSON.stringify(s)),b=body;
+  if(action==='v_all')return{ok:1,tree:DEMO_TREE,notes:s.notes.map(n=>({...n,image:undefined})),events:s.events,unclear:DEMO_UNCLEAR};
+  if(action==='v_shot')return{ok:1,data:(s.notes.find(n=>n.shotId===b.id)||{}).image};
+  if(action==='v_note'){const id='n'+Math.random().toString(36).slice(2,10);s.notes.push({id,key:b.key,v:b.v,tc:b.tc,tcText:b.tcText,text:b.text,by:b.by,at:nowS(),shotId:b.image?id:'',image:b.image,fixed:false});save();return{ok:1}}
+  if(action==='v_fixed'){const n=s.notes.find(n=>n.id===b.id);n.fixed=b.on;n.fixedBy=b.by;save();return{ok:1}}
+  if(action==='v_event'){s.events.push({key:b.key,v:b.v,type:b.type,by:b.by,at:nowS()});save();return{ok:1}}
+  if(action==='v_approve'){if(b.pin!=='123456')throw new Error('Wrong PIN (demo PIN is 123456).');s.events.push({key:b.key,v:b.v,type:'approved',by:'Sarosh',at:nowS()});save();return{ok:1}}
+}
+const nowS=()=>new Date().toISOString().slice(0,16).replace('T',' ')+' UTC';
+const fileUrl=id=>DEMO?DEMO_BASE+id+'.mp4':`https://www.googleapis.com/drive/v3/files/${id}?alt=media&key=${CFG.API_KEY||D.apiKey||''}`;
+/* ---------- status is DERIVED from the version history + notes + Final mark ---------- */
+const keyOf=i=>`${i.pillar}|${i.lang}|${i.code}`, notesOf=(k,v)=>D.notes.filter(n=>n.key===k&&Number(n.v)===v), evOf=k=>D.events.map((e,x)=>[e,x]).filter(p=>p[0].key===k).sort((a,b)=>a[0].at<b[0].at?-1:a[0].at>b[0].at?1:a[1]-b[1]).map(p=>p[0]);
+const latest=i=>Math.max(0,...i.versions.map(x=>x.v));
+function status(i){const k=keyOf(i),N=latest(i);if(!N)return i.final?'Approved':'New file';const e=evOf(k).pop();if(!e)return'New file';
+ if(e.type==='approved')return e.v===N?'Approved':'New file';
+ if(e.v<N)return e.type==='changes'?'Changes requested':'New file';
+ return{uploaded:'Ready for review',resubmitted:'Ready for review',changes:'Changes requested',ok:'Waiting for Sarosh'}[e.type]}
+const cls=s=>'s-'+s.replace(/\s/g,'-');
+const TAG={uploaded:e=>`Uploaded by ${e.by}`,resubmitted:e=>`Ready for review after changes - ${e.by}`,changes:e=>`Reviewed by ${e.by} - changes`,ok:e=>`Reviewed by ${e.by} - OK`,approved:e=>`Approved by ${e.by}`};
+async function load(){try{D=await api('v_all');}catch(e){toast('Could not load: '+e.message);return}renderList();if(sel)renderView(true)}
+function renderList(){const f=$('#fs').value,g={};
+ const show={Editors:()=>true,Reviewers:s=>s==='Ready for review',Sarosh:s=>s==='Waiting for Sarosh'||s==='Approved'};
+ D.tree.forEach(i=>{const s=status(i);if((f&&s!==f)||!show[ROLE](s))return;((g[i.pillar]??={})[i.lang]??=[]).push([i,s])});
+ const un=(D.unclear||[]).length?`<div class="prev" style="margin:0 0 8px"><b>${D.unclear.length} file(s) need a name with the video code</b> (e.g. MS01):<br>${D.unclear.map(u=>`<span class="mut">${esc(u.pillar)}/${esc(u.lang)}/${esc(u.name)} - ${esc(u.why)}</span>`).join('<br>')}</div>`:'';
+ const op=id=>closed.has(id)?'':'open';
+ const todo=ROLE==='Editors'?D.tree.filter(i=>['New file','Changes requested'].includes(status(i))):[];
+ const wb='';
+ const tb=todo.length?`<div class="sec">To do (${todo.length})</div>${todo.map(i=>`<div class="row" data-k="${esc(keyOf(i))}"><span>${esc(i.pillar)} / ${esc(i.lang)} / ${esc(i.code)}</span><span class="chip ${cls(status(i))}">${status(i)}</span></div>`).join('')}<hr style="border:0;border-top:1px solid var(--line)">`:'';
+ $('#list').innerHTML=(ROLE==='Editors'?un:'')+tb+wb+(Object.keys(g).sort().map(p=>`<details data-id="${esc(p)}" ${op(p)}><summary>${esc(p)}</summary>${Object.keys(g[p]).sort().map(l=>`<details data-id="${esc(p+'/'+l)}" ${op(p+'/'+l)} style="margin-left:10px"><summary class="mut">${esc(l)}</summary>${g[p][l].sort((a,b)=>a[0].code.localeCompare(b[0].code)).map(([i,s])=>`<div class="row ${sel===keyOf(i)?'sel':''}" data-k="${esc(keyOf(i))}"><span>${esc(i.code)} <span class="mut">${i.versions.length?'v'+latest(i):''}</span></span><span class="chip ${cls(s)}">${s}</span></div>`).join('')}</details>`).join('')}</details>`).join('')||'<span class="mut">'+({Editors:'No videos yet.',Reviewers:'Nothing is waiting for review.',Sarosh:'Nothing is waiting for you.'})[ROLE]+'</span>');
+ document.querySelectorAll('#list details').forEach(d=>d.ontoggle=()=>d.open?closed.delete(d.dataset.id):closed.add(d.dataset.id));
+ document.querySelectorAll('.row').forEach(r=>r.onclick=()=>{sel=r.dataset.k;selV=null;pend=null;renderList();renderView()})}
+const item=()=>D.tree.find(i=>keyOf(i)===sel);
+function fmt(t){const ms=Math.floor(t*1000),m=Math.floor(ms/60000),s=(ms-m*60000)/1000;return String(m).padStart(2,'0')+':'+s.toFixed(3).padStart(6,'0')+' (f'+Math.round(t*30000/1001)+')'}
+function sources(i){const a=i.versions.map(x=>({lab:'v'+x.v,v:x.v,id:x.id,sub:(x.date||'').slice(5,10)}));if(!a.length&&i.final)a.push({lab:'Final',v:0,id:i.final.id,sub:''});return a}
+function actions(i,cur,st){const N=latest(i),isLast=cur.v===N&&N>0;if(!isLast)return'';
+ const B=(id,l,c)=>`<button id="${id}" class="${c||''}">${l}</button>`;
+ const m={Editors:{'New file':B('a_up','Uploaded','p'),'Changes requested':B('a_re','Ready for review after changes','p')},Reviewers:{'Ready for review':B('a_chg','Changes needed','p')+B('a_ok','No changes')},Sarosh:{'Waiting for Sarosh':B('a_ap','Approve (PIN)','p')}}[ROLE];return m[st]||''}
+const WAIT={Editors:{'Ready for review':'Waiting for the reviewer.','Waiting for Sarosh':'Reviewer is happy - waiting for Sarosh.','Approved':'Approved.'},Reviewers:{},Sarosh:{}};
+function renderHead(i,cur){const k=keyOf(i),st=status(i),N=latest(i),ev=(type)=>send('v_event',{key:k,v:N,type}),last=evOf(k).pop();
+ $('#hd').innerHTML=`<b style="font-size:16px">${esc(i.pillar)} / ${esc(i.lang)} / ${esc(i.code)}</b><span class="chip ${cls(st)}">${st}</span>
+  <span class="tabs">${sources(i).map(s=>`<button aria-pressed="${s.lab===selV}" data-v="${s.lab}">${s.lab}${s.sub?' · '+s.sub:''}</button>`).join('')}</span><span style="flex:1"></span>
+  ${ROLE==='Reviewers'?'':'<button id="pdf">Download PDF</button>'}`;
+ $('#act').innerHTML=actions(i,cur,st)||(st==='Approved'?`<span class="mut">${esc(last?TAG.approved(last)+', '+last.at:'Approved (final file already in the folder)')}</span>`:`<span class="mut">${cur.v!==N?'Older version: buttons work on the latest.':(WAIT[ROLE]||{})[st]||'Nothing for you to do on this video.'}</span>`);
+ document.querySelectorAll('.tabs button').forEach(b=>b.onclick=()=>{selV=b.dataset.v;pend=null;renderView()});
+ if($('#pdf'))$('#pdf').onclick=()=>pdf(i,cur);
+ const on=(id,f)=>{const e=$('#'+id);if(e)e.onclick=f};
+ on('a_up',()=>ev('uploaded'));on('a_re',()=>ev('resubmitted'));on('a_ok',()=>ev('ok'));on('a_chg',()=>notesOf(k,N).length?ev('changes'):toast('Add at least one change first (pause, Screenshot + timecode).'));
+ on('a_ap',async()=>{const pin=prompt('Sarosh PIN to approve. This copies the file to the final folder (an existing final goes to _old).');if(pin==null)return;if(await send('v_approve',{key:k,v:N,pin}))toast('Approved - file copied to the final folder')});
+ if(ROLE==='Sarosh')renderHist(i);else $('#hist').innerHTML=''}
+function renderHist(i){const k=keyOf(i),h=[...evOf(k).map(e=>({at:e.at,t:TAG[e.type](e)})),...i.versions.map(v=>({at:v.date||'',t:`v${v.v} file detected${v.name?' ("'+v.name+'")':''}`}))].sort((a,b)=>a.at<b.at?-1:1);
+ $('#hist').innerHTML='<div class="sec">History</div><div class="hist">'+(h.map(x=>`<span><b>${esc(x.t)}</b> <span class="mut">${esc(x.at)}</span></span>`).join('')||'<span class="mut">Nothing yet.</span>')+'</div>'}
+function renderView(keep){const i=item();if(!i){$('#view').innerHTML='';return}
+ const src=sources(i);if(!selV||!src.some(s=>s.lab===selV))selV=src[src.length-1].lab;const cur=src.find(s=>s.lab===selV),old=$('#vid');
+ if(keep&&old&&old.dataset.id===cur.id){renderHead(i,cur);renderNotes(i,cur);return}   // background refresh: never touch the player
+ $('#view').innerHTML=`<div class="card"><div class="bar2" id="hd"></div><div class="bar2" id="act"></div>
+  <video id="vid" data-id="${cur.id}" controls preload="metadata" playsinline ${DEMO&&Q.get('demo')==='nocors'?'':'crossorigin="anonymous"'} src="${fileUrl(cur.id)}"></video>
+  <div class="bar2">${ROLE==='Reviewers'?`<button id="shot" ${cur.v?'':'disabled'}>Screenshot + timecode</button>`:''}<span class="mut" id="clock"></span></div>
+  <div id="form"></div></div><div class="card" style="margin-top:16px" id="notes"></div><div class="card" style="margin-top:16px" id="hist"></div>`;
+ renderHead(i,cur);const v=$('#vid');v.addEventListener('timeupdate',()=>$('#clock').textContent=fmt(v.currentTime));$('#clock').textContent=fmt(0);
+ if($('#shot'))$('#shot').onclick=()=>capture(i,cur);
+ v.onerror=()=>toast('Video would not load (check sharing / API key). Notes still work without a screenshot.');
+ renderNotes(i,cur);if(pend)renderForm(i,cur)}
+async function send(action,b){if(busy){toast('Still saving…');return false}
+ const by=$('#who').value.trim();if(!by&&action!=='v_approve'){toast('Type your name first (top right).');return false}
+ busy=true;document.body.style.cursor='progress';
+ try{await api(action,{...b,by});await load();return true}catch(e){toast('Not saved: '+e.message);return false}   // refused save keeps the form + typed text
+ finally{busy=false;document.body.style.cursor=''}}
+/* ---------- screenshot: canvas first, tab-capture fallback, else timecode-only ---------- */
+async function capture(i,cur){const v=$('#vid');v.pause();const t=v.currentTime;pend={t,tcText:fmt(t),img:null,how:''};
+ try{if(!(v.videoWidth>0&&v.readyState>=2))throw{name:'video not loaded'};
+  const w=Math.min(v.videoWidth,960),c=document.createElement('canvas');c.width=w;c.height=Math.round(w*v.videoHeight/v.videoWidth);
+  c.getContext('2d').drawImage(v,0,0,c.width,c.height);pend.img=c.toDataURL('image/jpeg',.82);pend.how='frame grabbed'}
+ catch(e){pend.how='canvas blocked ('+e.name+')';
+  try{if(!(v.videoWidth>0))throw 0;const st=await navigator.mediaDevices.getDisplayMedia({video:true,preferCurrentTab:true});const tr=st.getVideoTracks()[0];
+   if(window.CropTarget)await tr.cropTo(await CropTarget.fromElement(v));
+   const h=document.createElement('video');h.srcObject=st;h.muted=true;await h.play();await new Promise(r=>setTimeout(r,400));
+   const c=document.createElement('canvas');c.width=h.videoWidth;c.height=h.videoHeight;c.getContext('2d').drawImage(h,0,0);st.getTracks().forEach(x=>x.stop());
+   pend.img=c.toDataURL('image/jpeg',.82);pend.how='tab capture'}catch(e2){pend.how='no frame (timecode saved; attach an image if you want)'}}
+ renderForm(i,cur)}
+function renderForm(i,cur){$('#form').innerHTML=`<div class="prev"><div class="note" style="border:0;padding:0">${pend.img?`<img class="shot" src="${pend.img}">`:'<div class="mut">No image</div>'}
+ <div><div>Timecode <b>${pend.tcText}</b> <span class="mut">· ${pend.how}</span></div><textarea id="txt" rows="3" style="width:100%;margin:6px 0" placeholder="What must change here?">${esc(pend.text||'')}</textarea>
+ <input type="file" accept="image/*" id="att" ${pend.img?'hidden':''}> <button class="p" id="save">Save change</button> <button id="cancel">Cancel</button></div></div></div>`;
+ $('#txt').oninput=e=>pend.text=e.target.value;$('#cancel').onclick=()=>{pend=null;$('#form').innerHTML=''};
+ $('#att').onchange=e=>{const f=e.target.files[0];if(!f)return;const im=new Image();im.onload=()=>{const c=document.createElement('canvas');c.width=Math.min(im.width,960);c.height=Math.round(c.width*im.height/im.width);c.getContext('2d').drawImage(im,0,0,c.width,c.height);pend.img=c.toDataURL('image/jpeg',.82);renderForm(i,cur)};im.src=URL.createObjectURL(f)};
+ $('#save').onclick=async()=>{if(!(pend.text||'').trim()){toast('Write the change first.');return}
+  if(await send('v_note',{key:keyOf(i),v:cur.v,tc:pend.t,tcText:pend.tcText,text:pend.text,image:pend.img})){pend=null;$('#form').innerHTML=''}}}
+/* ---------- notes list + "was it fixed?" against the previous version ---------- */
+async function shot(n){if(!n.shotId)return'';if(n.image)return n.image;if(shotCache[n.shotId])return shotCache[n.shotId];
+ try{return shotCache[n.shotId]=(await api('v_shot',{id:n.shotId})).data}catch(e){return''}}
+function noteHTML(n,chk){return`<div class="note ${n.fixed?'fixed':''}"><img data-n="${esc(n.id)}" alt=""><div><button class="tc" data-t="${+n.tc}">${esc(n.tcText)}</button> <span class="mut">${esc(n.by)} · ${esc(n.at)}</span>
+ <div>${esc(n.text)}</div>${chk?`<label><input type="checkbox" data-fix="${esc(n.id)}" ${n.fixed?'checked':''}> fixed in this version</label>`:n.fixed?'<span class="mut">fixed ✔ '+esc(n.fixedBy||'')+'</span>':''}</div></div>`}
+const fixV=i=>{const c=evOf(keyOf(i)).filter(e=>e.type==='changes').pop();return c?c.v:0};   // version whose change list the editor must fix
+function renderNotes(i,cur){const k=keyOf(i),box=$('#notes');if(!box)return;
+ if(ROLE==='Editors'){const K=fixV(i),ns=K?notesOf(k,K):[],open=status(i)==='Changes requested'||status(i)==='New file';
+  box.innerHTML=ns.length&&open?`<h3 style="margin:0">Changes to fix (from v${K})</h3><div class="mut">Fix them, upload the new file, then press "Ready for review after changes".</div>${ns.map(n=>noteHTML(n,false)).join('')}`:'<div class="mut">No changes to fix right now.</div>'}
+ else{const prev=ROLE==='Reviewers'&&cur.v>1?notesOf(k,cur.v-1):[],mine=cur.v?notesOf(k,cur.v):[];
+  box.innerHTML=(prev.length?`<h3 style="margin:0">Notes from v${cur.v-1} — was it fixed?</h3><div class="mut">Click a time to jump there in ${cur.lab}, then tick it.</div>${prev.map(n=>noteHTML(n,true)).join('')}<hr>`:'')+
+  `<h3 style="margin:0">Changes on ${cur.lab} (${mine.length})</h3>${mine.map(n=>noteHTML(n,false)).join('')||'<div class="mut">'+(ROLE==='Reviewers'&&cur.v?'None yet. Pause the video and press Screenshot + timecode.':'None.')+'</div>'}`}
+ box.querySelectorAll('.tc').forEach(b=>b.onclick=()=>{$('#vid').currentTime=+b.dataset.t});
+ box.querySelectorAll('[data-fix]').forEach(c=>c.onchange=async()=>{if(!await send('v_fixed',{id:c.dataset.fix,on:c.checked}))c.checked=!c.checked});
+ box.querySelectorAll('img[data-n]').forEach(async im=>{const n=D.notes.find(x=>x.id===im.dataset.n);const s=await shot(n);s?im.src=s:im.remove()})}
+/* ---------- PDF: print-ready change list (browser: Save as PDF) ---------- */
+async function pdf(i,cur){const V=ROLE==='Editors'?fixV(i):cur.v,ns=V?notesOf(keyOf(i),V):[];cur={...cur,lab:'v'+V};if(!ns.length){toast('No changes on this version.');return}
+ const imgs=await Promise.all(ns.map(shot));
+ $('#pa').innerHTML=`<h2>${esc(i.pillar)} / ${esc(i.lang)} / ${esc(i.code)} — ${cur.lab} — change list</h2><p>${new Date().toISOString().slice(0,10)} · ${ns.length} changes</p>`+
+  ns.map((n,x)=>`<div class="n"><div>${imgs[x]?`<img src="${imgs[x]}">`:''}</div><div><b>${x+1}. ${esc(n.tcText)}</b> <small>${esc(n.by)}</small><p>${esc(n.text)}</p></div></div>`).join('');
+ await new Promise(r=>setTimeout(r,300));window.print()}
+const setRole=r=>{ROLE=r;try{localStorage.setItem('vr_role',r)}catch(e){}sel=null;pend=null;$('#view').innerHTML='<div class="card mut">Pick a video on the left.</div>';document.querySelectorAll('#roles button').forEach(b=>b.setAttribute('aria-pressed',b.dataset.r===r));renderList()};
+document.querySelectorAll('#roles button').forEach(b=>b.onclick=()=>setRole(b.dataset.r));document.querySelectorAll('#roles button').forEach(b=>b.setAttribute('aria-pressed',b.dataset.r===ROLE));
+$('#fs').onchange=renderList;$('#who').value=localStorage.getItem('vr_name')||'';$('#who').oninput=e=>localStorage.setItem('vr_name',e.target.value);
+$('#mode').textContent=DEMO?'DEMO - local data, not the live sheet':'Editors upload, reviewers check, Sarosh approves';load();setInterval(load,120000);
+</script></body></html>
