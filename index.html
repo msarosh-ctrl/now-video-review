@@ -70,9 +70,9 @@ function status(i){const k=keyOf(i),N=latest(i);if(!N)return i.final?'Approved':
  return{uploaded:'Ready for review',resubmitted:'Ready for review',changes:'Changes requested',ok:'Waiting for Sarosh'}[e.type]}
 const cls=s=>'s-'+s.replace(/\s/g,'-');
 const TAG={uploaded:e=>`Uploaded by ${e.by}`,resubmitted:e=>`Ready for review after changes - ${e.by}`,changes:e=>`Reviewed by ${e.by} - changes`,ok:e=>`Reviewed by ${e.by} - OK`,approved:e=>`Approved by ${e.by}`};
-async function load(){try{D=await api('v_all');}catch(e){toast('Could not load: '+e.message);return}renderList();if(sel)renderView(true)}
+async function load(){if(!D.tree.length){try{const c=JSON.parse(localStorage.getItem('vr_cache')||'null');if(c&&c.tree){D=c;renderList()}}catch(e){}}try{D=await api('v_all');try{localStorage.setItem('vr_cache',JSON.stringify({tree:D.tree,notes:D.notes,events:D.events,unclear:D.unclear,apiKey:D.apiKey}))}catch(e){}}catch(e){toast('Could not load: '+e.message);return}renderList();if(sel)renderView(true)}
 function renderList(){const f=$('#fs').value,g={};
- const show={Editors:()=>true,Reviewers:s=>s==='Ready for review',Sarosh:s=>s==='Waiting for Sarosh'||s==='Approved'};
+ const show={Editors:()=>true,Reviewers:s=>s==='Ready for review'||s==='New file',Sarosh:s=>s==='Waiting for Sarosh'||s==='Approved'};
  D.tree.forEach(i=>{const s=status(i);if((f&&s!==f)||!show[ROLE](s))return;((g[i.pillar]??={})[i.lang]??=[]).push([i,s])});
  const un=(D.unclear||[]).length?`<div class="prev" style="margin:0 0 8px"><b>${D.unclear.length} file(s) need a name with the video code</b> (e.g. MS01):<br>${D.unclear.map(u=>`<span class="mut">${esc(u.pillar)}/${esc(u.lang)}/${esc(u.name)} - ${esc(u.why)}</span>`).join('<br>')}</div>`:'';
  const op=id=>closed.has(id)?'':'open';
@@ -87,7 +87,7 @@ function fmt(t){const ms=Math.floor(t*1000),m=Math.floor(ms/60000),s=(ms-m*60000
 function sources(i){const a=i.versions.map(x=>({lab:'v'+x.v,v:x.v,id:x.id,sub:(x.date||'').slice(5,10)}));if(!a.length&&i.final)a.push({lab:'Final',v:0,id:i.final.id,sub:''});return a}
 function actions(i,cur,st){const N=latest(i),isLast=cur.v===N&&N>0;if(!isLast)return'';
  const B=(id,l,c)=>`<button id="${id}" class="${c||''}">${l}</button>`;
- const m={Editors:{'New file':B('a_up','Uploaded','p'),'Changes requested':B('a_re','Ready for review after changes','p')},Reviewers:{'Ready for review':B('a_chg','Changes needed','p')+B('a_ok','No changes')},Sarosh:{'Waiting for Sarosh':B('a_ap','Approve (PIN)','p')}}[ROLE];return m[st]||''}
+ const m={Editors:{'New file':B('a_up','Uploaded','p'),'Changes requested':B('a_re','Ready for review after changes','p')},Reviewers:{'Ready for review':B('a_chg','Changes needed','p')+B('a_ok','No changes'),'New file':B('a_chg','Changes needed','p')+B('a_ok','No changes')},Sarosh:{'Waiting for Sarosh':B('a_ap','Approve (PIN)','p')}}[ROLE];return m[st]||''}
 const WAIT={Editors:{'Ready for review':'Waiting for the reviewer.','Waiting for Sarosh':'Reviewer is happy - waiting for Sarosh.','Approved':'Approved.'},Reviewers:{},Sarosh:{}};
 function renderHead(i,cur){const k=keyOf(i),st=status(i),N=latest(i),ev=(type)=>send('v_event',{key:k,v:N,type}),last=evOf(k).pop();
  $('#hd').innerHTML=`<b style="font-size:16px">${esc(i.pillar)} / ${esc(i.lang)} / ${esc(i.code)}</b><span class="chip ${cls(st)}">${st}</span>
