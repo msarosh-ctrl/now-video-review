@@ -84,7 +84,7 @@ function status(i){if(i.ghost)return'Not uploaded yet';const k=keyOf(i),N=latest
 const cls=s=>'s-'+s.replace(/\s/g,'-');
 const PORDER=['START NOW','MINDSET','PROTECT','GROW','MAKE'],pillars=g=>Object.keys(g).sort((a,b)=>(PORDER.indexOf(a)+1||99)-(PORDER.indexOf(b)+1||99)||a.localeCompare(b));
 const chgNames=i=>{const N=latest(i),k=keyOf(i),n=evOf(k).filter(e=>isCh(e)&&e.v===N),up=evOf(k).filter(e=>(e.type==='uploaded'||e.type==='resubmitted')&&e.v===N).pop();
- const l1=isRev()&&up?(up.type==='uploaded'?'Uploaded by ':'Ready after changes by ')+esc(up.by)+' · '+esc(up.at):'',l2=n.length?n.map(e=>'Changes by '+esc(e.by)).join(' · '):'';
+ const l1=isRev()&&up?(up.type==='uploaded'?'Uploaded by ':'Ready after changes by ')+esc(up.by)+' · '+esc(up.at):'',l2=n.length?n.map(e=>e.type==='farah_changes'?'Changes requested by Farah':'Changes by '+esc(e.by)).join(' · '):'';
  return l1||l2?`<br><span class="mut" style="font-size:12px">${[l1,l2].filter(Boolean).join('<br>')}</span>`:''};
 const TAG={uploaded:e=>`Uploaded by ${e.by}`,resubmitted:e=>`Ready for review after changes - ${e.by}`,changes:e=>`Changes by ${e.by}`,ok:e=>`Approved by ${e.by}`,approved:e=>`Final approval by ${e.by}`,farah_ok:e=>`Approved by Farah - waiting for Sarosh`,farah_changes:e=>`Changes by ${e.by} (Farah)`,reopened:e=>`Sent back to review by ${e.by}`};
 function withGhosts(){D.tree=(D.tree||[]).filter(i=>!i.ghost);const have=new Set(D.tree.map(keyOf)),ex=D.expected||{},lg=D.langs||[];   // expected videos with no file yet

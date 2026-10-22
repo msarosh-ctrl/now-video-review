@@ -345,9 +345,7 @@ function vrPost_(p) {
       const key = String(p.key), v = Number(p.v), vs = vrVersions_()[key] || [], ev = vrRows_('VideoEvents').filter(function (e) { return e.key === key; }).pop();
       if (key.split('|')[1] !== 'ENGLISH') return vrJson_({ ok: false, code: 'not_english', message: 'Farah checks English videos only.' });
       if (!vs.length || v !== vs[vs.length - 1].v) return vrJson_({ ok: false, code: 'stale', message: 'A newer version arrived - reload the page.' });
-      const lastCh = vrRows_('VideoEvents').filter(function (e) { return e.key === key && (e.type === 'changes' || e.type === 'farah_changes'); }).pop();
-      const backToFarah = ev && ev.type === 'resubmitted' && Number(ev.v) === v && lastCh && lastCh.type === 'farah_changes';   // Farah asked for changes -> the fixed version skips the reviewers
-      if (!ev || Number(ev.v) !== v || (ev.type !== 'ok' && !backToFarah)) return vrJson_({ ok: false, code: 'not_ok', message: 'This version is not waiting for Farah.' });
+      if (!vrFarahStage_(key, v)) return vrJson_({ ok: false, code: 'not_ok', message: 'This version is not waiting for Farah.' });
       vrTab_('VideoEvents', true).appendRow([key, v, 'farah_ok', 'Farah', vrNow_(), '']); return vrJson_({ ok: true });
     }
     if (p.action === 'v_reopen') {                           // PIN: send an approved video back to review (event only; final copy, history and comments stay)
@@ -387,7 +385,9 @@ function vrPost_(p) {
       const html = vrSanitize_(p.html); if (!/\S/.test(html.replace(/<[^>]*>|&nbsp;/g, '').replace(/\s/g, '')) && !/<img/.test(html)) return vrJson_({ ok: false, code: 'empty', message: 'Write something or paste a screenshot first.' });
       if (html.length > 150000) return vrJson_({ ok: false, code: 'too_big', message: 'Comment too long.' });
       const id = 'c' + Utilities.getUuid().replace(/-/g, '').slice(0, 8), at = vrNow_();
-      vrTab_('VideoComments', true).appendRow([id, key, v, by, html, at]); return vrJson_({ ok: true, id: id, at: at });
+      vrTab_('VideoComments', true).appendRow([id, key, v, by, html, at]);
+      if (vrFarahStage_(key, v)) vrTab_('VideoEvents', true).appendRow([key, v, 'farah_changes', by, vrNow_(), '']);   // a comment at the Farah stage = Farah asks for changes
+      return vrJson_({ ok: true, id: id, at: at });
     }
     if (p.action === 'v_comment_edit' || p.action === 'v_comment_delete') {   // only by re-typing the same name
       const sh = vrTab_('VideoComments', true), row = vrRows_('VideoComments').filter(function (c) { return c.id === String(p.id); })[0];
@@ -460,6 +460,13 @@ function vrPost_(p) {
   } catch (err) { return vrJson_({ ok: false, code: 'write_failed', message: String(err) }); }
 }
 /** PIN "Approve": COPY <inbox>/<PILLAR>/<LANG>/<CODE>.mp4 -> NEW NOW MATERIALS/<PILLAR>/VIDEO/<LANG>/<CODE>.mp4 (existing final -> that folder's _old/). */
+/** English version waits for Farah: reviewers said ok, or the editor resubmitted after Farah's own changes (the fix skips the reviewers). */
+function vrFarahStage_(key, v) {
+  if (key.split('|')[1] !== 'ENGLISH') return false;
+  const evs = vrRows_('VideoEvents').filter(function (e) { return e.key === key; }), ev = evs[evs.length - 1];
+  const lastCh = evs.filter(function (e) { return e.type === 'changes' || e.type === 'farah_changes'; }).pop();
+  return !!ev && Number(ev.v) === v && (ev.type === 'ok' || (ev.type === 'resubmitted' && !!lastCh && lastCh.type === 'farah_changes'));
+}
 function vrApprove_(key, v) {
   const a = key.split('|'); if (a.length !== 3 || VR_PILLARS.indexOf(a[0]) < 0) return vrJson_({ ok: false, code: 'bad_key' });
   const vs = vrVersions_()[key] || [], last = vs[vs.length - 1];
