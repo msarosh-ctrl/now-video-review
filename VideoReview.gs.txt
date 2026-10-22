@@ -324,13 +324,12 @@ function vrShots_() {
 }
 
 // ---------- writes (called from doPost, which already holds the script lock) ----------
-function vrPinOk_(pin, prop) {                              // prop: 'VR_PIN' (Sarosh, default) or 'VR_FARAH_PIN' (set by the user in Script properties)
-  prop = prop || 'VR_PIN';
-  const cache = CacheService.getScriptCache(), ck = 'vr_pinfail' + (prop === 'VR_PIN' ? '' : '_' + prop), n = Number(cache.get(ck) || 0);
+function vrPinOk_(pin) {
+  const cache = CacheService.getScriptCache(), n = Number(cache.get('vr_pinfail') || 0);
   if (n >= 5) return 'locked';
-  const want = PropertiesService.getScriptProperties().getProperty(prop);
+  const want = PropertiesService.getScriptProperties().getProperty('VR_PIN');
   if (want && String(pin) === want) return 'ok';
-  cache.put(ck, String(n + 1), 600); return 'bad';
+  cache.put('vr_pinfail', String(n + 1), 600); return 'bad';
 }
 function vrPost_(p) {
   try {
@@ -340,13 +339,16 @@ function vrPost_(p) {
       const chk = vrPinOk_(p.pin);
       if (chk === 'locked') return vrJson_({ ok: false, code: 'locked', message: 'Too many wrong PINs. Try again in 10 minutes.' });
       if (chk !== 'ok') return vrJson_({ ok: false, code: 'bad_pin', message: 'Wrong PIN.' });
-      return vrApprove_(String(p.key), Number(p.v), String(p.key).split('|')[1] === 'ENGLISH' ? 'hold' : 'sarosh');   // English: Sarosh's approval waits for Farah
+      return vrApprove_(String(p.key), Number(p.v));
     }
-    if (p.action === 'v_farah') {                            // Farah's final go-ahead (English only): now the real final copy happens
-      const chk = vrPinOk_(p.pin, 'VR_FARAH_PIN');
-      if (chk === 'locked') return vrJson_({ ok: false, code: 'locked', message: 'Too many wrong PINs. Try again in 10 minutes.' });
-      if (chk !== 'ok') return vrJson_({ ok: false, code: 'bad_pin', message: 'Wrong PIN (or the Farah PIN is not set yet).' });
-      return vrApprove_(String(p.key), Number(p.v), 'farah');
+    if (p.action === 'v_farah_ok') {                         // English only, no PIN/name: Farah approves a version the reviewers approved -> goes to Sarosh
+      const key = String(p.key), v = Number(p.v), vs = vrVersions_()[key] || [], ev = vrRows_('VideoEvents').filter(function (e) { return e.key === key; }).pop();
+      if (key.split('|')[1] !== 'ENGLISH') return vrJson_({ ok: false, code: 'not_english', message: 'Farah checks English videos only.' });
+      if (!vs.length || v !== vs[vs.length - 1].v) return vrJson_({ ok: false, code: 'stale', message: 'A newer version arrived - reload the page.' });
+      const lastCh = vrRows_('VideoEvents').filter(function (e) { return e.key === key && (e.type === 'changes' || e.type === 'farah_changes'); }).pop();
+      const backToFarah = ev && ev.type === 'resubmitted' && Number(ev.v) === v && lastCh && lastCh.type === 'farah_changes';   // Farah asked for changes -> the fixed version skips the reviewers
+      if (!ev || Number(ev.v) !== v || (ev.type !== 'ok' && !backToFarah)) return vrJson_({ ok: false, code: 'not_ok', message: 'This version is not waiting for Farah.' });
+      vrTab_('VideoEvents', true).appendRow([key, v, 'farah_ok', 'Farah', vrNow_(), '']); return vrJson_({ ok: true });
     }
     if (p.action === 'v_reopen') {                           // PIN: send an approved video back to review (event only; final copy, history and comments stay)
       const chk = vrPinOk_(p.pin);
@@ -412,7 +414,7 @@ function vrPost_(p) {
     if (!by) return vrJson_({ ok: false, code: 'no_name', message: 'Please type your name first.' });
     if (p.action === 'v_event') {                            // name tag + date for every workflow step
       const t = String(p.type), v = Number(p.v), key = String(p.key), vs = vrVersions_()[key] || [];
-      if (['uploaded', 'resubmitted', 'changes', 'ok'].indexOf(t) < 0 || !vs.length || v !== vs[vs.length - 1].v) return vrJson_({ ok: false, code: 'stale', message: 'A newer version arrived - reload the page.' });
+      if (['uploaded', 'resubmitted', 'changes', 'ok', 'farah_changes'].indexOf(t) < 0 || (t === 'farah_changes' && key.split('|')[1] !== 'ENGLISH') || !vs.length || v !== vs[vs.length - 1].v) return vrJson_({ ok: false, code: 'stale', message: 'A newer version arrived - reload the page.' });
       let docId = '';
       if (t === 'changes' && p.docId) {                      // which reviewer doc this person finished
         docId = String(p.docId);
@@ -458,14 +460,13 @@ function vrPost_(p) {
   } catch (err) { return vrJson_({ ok: false, code: 'write_failed', message: String(err) }); }
 }
 /** PIN "Approve": COPY <inbox>/<PILLAR>/<LANG>/<CODE>.mp4 -> NEW NOW MATERIALS/<PILLAR>/VIDEO/<LANG>/<CODE>.mp4 (existing final -> that folder's _old/). */
-function vrApprove_(key, v, mode) {                         // mode: 'sarosh' (reviewer ok -> copy), 'hold' (English: reviewer ok -> wait for Farah), 'farah' (waiting -> copy)
+function vrApprove_(key, v) {
   const a = key.split('|'); if (a.length !== 3 || VR_PILLARS.indexOf(a[0]) < 0) return vrJson_({ ok: false, code: 'bad_key' });
   const vs = vrVersions_()[key] || [], last = vs[vs.length - 1];
   if (!last || last.v !== v) return vrJson_({ ok: false, code: 'stale', message: 'A newer version arrived - reload the page.' });
   const ev = vrRows_('VideoEvents').filter(function (e) { return e.key === key; }).pop();
-  const need = mode === 'farah' ? 'farah_wait' : 'ok';
-  if (!ev || ev.type !== need || Number(ev.v) !== v) return vrJson_({ ok: false, code: 'not_ok', message: mode === 'farah' ? 'This version is not waiting for Farah.' : 'The reviewer has not approved this version.' });
-  if (mode === 'hold') { vrTab_('VideoEvents', true).appendRow([key, v, 'farah_wait', 'Sarosh', vrNow_(), '']); vrLog_('farah_wait', key, last.id, 'approved by Sarosh, waiting for Farah'); return vrJson_({ ok: true, hold: true }); }
+  const need = a[1] === 'ENGLISH' ? 'farah_ok' : 'ok';       // English: reviewers ok -> Farah ok -> Sarosh PIN (last step)
+  if (!ev || ev.type !== need || Number(ev.v) !== v) return vrJson_({ ok: false, code: 'not_ok', message: a[1] === 'ENGLISH' ? 'Farah has not approved this version.' : 'The reviewer has not approved this version.' });
   const inbox = vrInbox_(), pf = inbox && vrSub_(inbox, a[0], false), L = pf && vrSub_(pf, a[1], false);
   const cur = L && L.getFilesByName(a[2] + '.mp4'); if (!cur || !cur.hasNext()) return vrJson_({ ok: false, code: 'no_file', message: a[2] + '.mp4 is not in the review folder.' });
   const file = cur.next(); if (file.getId() !== last.id) return vrJson_({ ok: false, code: 'stale', message: 'The file in the folder is not the reviewed version.' });
@@ -484,7 +485,7 @@ function vrApprove_(key, v, mode) {                         // mode: 'sarosh' (r
     moved.forEach(function (m) { try { m.f.moveTo(dest); m.f.setName(m.name); } catch (e2) { vrLog_('restore_failed', key, m.f.getId(), String(e2)); } });
     vrLog_('approve_failed', key, file.getId(), String(err)); return vrJson_({ ok: false, code: 'copy_failed', message: 'Copy failed, nothing changed: ' + err });
   }
-  vrTab_('VideoEvents', true).appendRow([key, v, 'approved', mode === 'farah' ? 'Farah' : 'Sarosh', vrNow_()]); vrLog_('approved_copy', key, copy.getId(), 'copied to ' + a[0] + '/VIDEO/' + a[1]);
+  vrTab_('VideoEvents', true).appendRow([key, v, 'approved', 'Sarosh', vrNow_()]); vrLog_('approved_copy', key, copy.getId(), 'copied to ' + a[0] + '/VIDEO/' + a[1]);
   CacheService.getScriptCache().remove('vr_finals');
   return vrJson_({ ok: true });
 }

@@ -36,7 +36,7 @@ video{width:100%;background:#000;border-radius:10px;max-height:58vh}.bar2{displa
 const CFG=window.VR_CONFIG||{EXEC_URL:'',API_KEY:''}, DEMO=!CFG.EXEC_URL, $=s=>document.querySelector(s);
 const esc=s=>String(s??'').replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const Q=new URLSearchParams(location.search), DEMO_BASE=Q.get('demo')==='nocors'?'http://localhost:18766/':'http://localhost:18767/';
-const FIN='Final videos',FAR='Farah (English final check)',isRev=()=>ROLE==='Reviewers'||ROLE===FAR;let ROLE=(()=>{try{const r=localStorage.getItem('vr_role');return['Editors','Reviewers',FAR,FIN].includes(r)?r:'Editors'}catch(e){return'Editors'}})();let D={docs:[],tree:[],notes:[],events:[],unclear:[]}, sel=null, selV=null, pend=null, shotCache={}, busy=false, closed=new Set();
+const isCh=e=>e.type==='changes'||e.type==='farah_changes',FIN='Final videos',FAR='Farah (English final check)',isRev=()=>ROLE==='Reviewers'||ROLE===FAR;let ROLE=(()=>{try{const r=localStorage.getItem('vr_role');return['Editors','Reviewers',FAR,FIN].includes(r)?r:'Editors'}catch(e){return'Editors'}})();let D={docs:[],tree:[],notes:[],events:[],unclear:[]}, sel=null, selV=null, pend=null, shotCache={}, busy=false, closed=new Set();
 function toast(m){const e=$('#msg');e.textContent=m;e.style.display='block';clearTimeout(toast.t);toast.t=setTimeout(()=>e.style.display='none',5000)}
 /* ---------- data layer: Apps Script (live) or localStorage (demo) ---------- */
 const DEMO_TREE=[{pillar:'MINDSET',lang:'ENGLISH',code:'MS01',final:null,versions:[{v:1,id:'demo_v1',name:'MS01 (1).mp4',date:'2026-10-20 09:10 UTC'},{v:2,id:'demo_v2',name:'MS01_fixed.mp4',date:'2026-10-21 12:40 UTC'}]},
@@ -64,9 +64,9 @@ async function api(action,body){
   if(action==='v_image'){s.images=s.images||{};const id='img'+Math.random().toString(36).slice(2,12);s.images[id]=b.image;save();return{ok:1,id}}
   if(action==='v_refresh'){s.docs=s.docs||[];if(!s.docs.some(d=>d.key===b.key&&d.v===b.v&&d.by==='ALL'))s.docs.push({key:b.key,v:b.v,docId:'demoall',by:'ALL',at:nowS()});save();return{ok:1}}
   if(action==='v_newdoc'){s.docs=s.docs||[];const dup=s.docs.find(d=>d.key===b.key&&d.v===b.v&&d.by.toLowerCase()===b.by.toLowerCase());if(!dup){const first='demodoc'+b.v,claimed=s.docs.some(d=>d.key===b.key&&d.v===b.v&&d.docId===first);s.docs.push({key:b.key,v:b.v,docId:claimed?'demo'+Math.random().toString(36).slice(2,8):first,by:b.by,at:nowS()})}save();return{ok:1}}
-  if(action==='v_farah'){if(b.pin!=='654321')throw new Error('Wrong PIN (demo Farah PIN is 654321).');s.events.push({key:b.key,v:b.v,type:'approved',by:'Farah',at:nowS()});save();return{ok:1}}
+  if(action==='v_farah_ok'){s.events.push({key:b.key,v:b.v,type:'farah_ok',by:'Farah',at:nowS()});save();return{ok:1}}
   if(action==='v_reopen'){if(b.pin!=='123456')throw new Error('Wrong PIN (demo PIN is 123456).');s.events.push({key:b.key,v:b.v,type:'reopened',by:'Sarosh',at:nowS()});save();return{ok:1}}
-  if(action==='v_approve'){if(b.pin!=='123456')throw new Error('Wrong PIN (demo PIN is 123456).');s.events.push({key:b.key,v:b.v,type:/\|ENGLISH\|/.test(b.key)?'farah_wait':'approved',by:'Sarosh',at:nowS()});save();return{ok:1}}
+  if(action==='v_approve'){if(b.pin!=='123456')throw new Error('Wrong PIN (demo PIN is 123456).');s.events.push({key:b.key,v:b.v,type:'approved',by:'Sarosh',at:nowS()});save();return{ok:1}}
 }
 const nowS=()=>new Date().toISOString().slice(0,16).replace('T',' ')+' UTC';
 const fileUrl=id=>DEMO?DEMO_BASE+id+'.mp4':`https://www.googleapis.com/drive/v3/files/${id}?alt=media&key=${CFG.API_KEY||D.apiKey||''}`;
@@ -75,23 +75,25 @@ const keyOf=i=>`${i.pillar}|${i.lang}|${i.code}`, notesOf=(k,v)=>D.notes.filter(
 const latest=i=>Math.max(0,...i.versions.map(x=>x.v));
 function status(i){if(i.ghost)return'Not uploaded yet';const k=keyOf(i),N=latest(i);if(!N)return i.final?'Approved':'New file';const e=evOf(k).pop();if(!e)return'New file';
  if(e.type==='reopened')return'Changes requested';
- if(e.type==='farah_wait'&&e.v===N)return'Waiting for Farah';
+ if(e.type==='farah_ok'&&e.v===N)return'Waiting for approval';
+ if(e.type==='ok'&&e.v===N&&i.lang==='ENGLISH')return'Waiting for Farah';
  if(e.type==='approved')return e.v===N?'Approved':'New file';
- if(e.v<N)return e.type==='changes'?'Changes requested':'New file';
- return{uploaded:'Ready for review',resubmitted:'Ready for review',changes:'Changes requested',ok:'Waiting for approval'}[e.type]}
+ if(e.v<N)return isCh(e)?'Changes requested':'New file';
+ if(e.type==='resubmitted'&&i.lang==='ENGLISH'&&(evOf(k).filter(isCh).pop()||{}).type==='farah_changes')return'Waiting for Farah';   // Farah's changes: the fix goes straight back to her
+ return{uploaded:'Ready for review',resubmitted:'Ready for review',changes:'Changes requested',farah_changes:'Changes requested',ok:'Waiting for approval'}[e.type]}
 const cls=s=>'s-'+s.replace(/\s/g,'-');
 const PORDER=['START NOW','MINDSET','PROTECT','GROW','MAKE'],pillars=g=>Object.keys(g).sort((a,b)=>(PORDER.indexOf(a)+1||99)-(PORDER.indexOf(b)+1||99)||a.localeCompare(b));
-const chgNames=i=>{const N=latest(i),k=keyOf(i),n=evOf(k).filter(e=>e.type==='changes'&&e.v===N),up=evOf(k).filter(e=>(e.type==='uploaded'||e.type==='resubmitted')&&e.v===N).pop();
+const chgNames=i=>{const N=latest(i),k=keyOf(i),n=evOf(k).filter(e=>isCh(e)&&e.v===N),up=evOf(k).filter(e=>(e.type==='uploaded'||e.type==='resubmitted')&&e.v===N).pop();
  const l1=isRev()&&up?(up.type==='uploaded'?'Uploaded by ':'Ready after changes by ')+esc(up.by)+' · '+esc(up.at):'',l2=n.length?n.map(e=>'Changes by '+esc(e.by)).join(' · '):'';
  return l1||l2?`<br><span class="mut" style="font-size:12px">${[l1,l2].filter(Boolean).join('<br>')}</span>`:''};
-const TAG={uploaded:e=>`Uploaded by ${e.by}`,resubmitted:e=>`Ready for review after changes - ${e.by}`,changes:e=>`Changes by ${e.by}`,ok:e=>`Approved by ${e.by}`,approved:e=>`Final approval by ${e.by}`,farah_wait:e=>`Approved by ${e.by} - waiting for Farah`,reopened:e=>`Sent back to review by ${e.by}`};
+const TAG={uploaded:e=>`Uploaded by ${e.by}`,resubmitted:e=>`Ready for review after changes - ${e.by}`,changes:e=>`Changes by ${e.by}`,ok:e=>`Approved by ${e.by}`,approved:e=>`Final approval by ${e.by}`,farah_ok:e=>`Approved by Farah - waiting for Sarosh`,farah_changes:e=>`Changes by ${e.by} (Farah)`,reopened:e=>`Sent back to review by ${e.by}`};
 function withGhosts(){D.tree=(D.tree||[]).filter(i=>!i.ghost);const have=new Set(D.tree.map(keyOf)),ex=D.expected||{},lg=D.langs||[];   // expected videos with no file yet
  Object.keys(ex).forEach(p=>lg.forEach(l=>(ex[p]||[]).forEach(c=>{if(!have.has(p+'|'+l+'|'+c))D.tree.push({pillar:p,lang:l,code:c,final:null,versions:[],ghost:true})})))}
 async function load(){if(!D.tree.length){try{const c=JSON.parse(localStorage.getItem('vr_cache')||'null');if(c&&c.tree){D=c;withGhosts();renderList()}}catch(e){}}try{D=await api('v_all');withGhosts();try{localStorage.setItem('vr_cache',JSON.stringify({expected:D.expected,langs:D.langs,tree:D.tree.filter(i=>!i.ghost),notes:D.notes,events:D.events,docs:D.docs,comments:D.comments,unclear:D.unclear,apiKey:D.apiKey}))}catch(e){}}catch(e){toast('Could not load: '+e.message);return}renderList();if(sel)renderView(true)}
 const reopened=i=>(evOf(keyOf(i)).filter(x=>x.type==='approved'||x.type==='reopened').pop()||{}).type==='reopened';
 function renderFinalList(){const f=$('#fs').value,wait=D.tree.filter(i=>status(i)==='Waiting for approval'),fin=D.tree.filter(i=>i.final&&!reopened(i)),g={};
  fin.forEach(i=>((g[i.pillar]??={})[i.lang]??=[]).push(i));
- const ap=i=>{const e=evOf(keyOf(i)).filter(x=>x.type==='approved').pop();return e?(e.by==='Farah'?`Final (Farah) · ${esc(e.at)}`:`approved by ${esc(e.by)} · ${esc(e.at)}`):'approved earlier'},op=id=>closed.has(id)?'':'open';
+ const ap=i=>{const e=evOf(keyOf(i)).filter(x=>x.type==='approved').pop();return e?`Final - approved by ${esc(e.by)} · ${esc(e.at)}`:'approved earlier'},op=id=>closed.has(id)?'':'open';
  const wb=`<div class="sec">Waiting for approval (${wait.length})</div>`+(wait.length?wait.map(i=>`<div class="row ${sel===keyOf(i)?'sel':''}" data-k="${esc(keyOf(i))}"><span>${esc(i.pillar)} / ${esc(i.lang)} / ${esc(i.code)}</span><span class="chip s-Waiting-for-approval">Approve</span></div>`).join(''):'<div class="mut" style="padding:4px 8px">Nothing is waiting.</div>')+'<hr style="border:0;border-top:1px solid var(--line)">';
  const fb=`<div class="sec">Final videos (${fin.length})</div>`+(pillars(g).map(p=>`<details data-id="f${esc(p)}" ${op('f'+p)}><summary>${esc(p)}</summary>${Object.keys(g[p]).sort().map(l=>`<details data-id="f${esc(p+'/'+l)}" ${op('f'+p+'/'+l)} style="margin-left:10px"><summary class="mut">${esc(l)}</summary>${g[p][l].sort((a,b)=>a.code.localeCompare(b.code)).map(i=>`<div class="row ${sel===keyOf(i)?'sel':''}" data-k="${esc(keyOf(i))}"><span>${esc(i.code)}<br><span class="mut" style="font-size:12px">${ap(i)}</span></span><a class="btn" style="text-decoration:none" target="_blank" rel="noopener" href="https://drive.google.com/file/d/${i.final.id}/view" onclick="event.stopPropagation()">Open</a> <button class="btn" data-back="${esc(keyOf(i))}">Send back to review</button></div>`).join('')}</details>`).join('')}</details>`).join('')||'<div class="mut" style="padding:4px 8px">No final videos yet.</div>');
  $('#list').innerHTML=wb+fb;
@@ -114,8 +116,8 @@ function fmt(t){const ms=Math.floor(t*1000),m=Math.floor(ms/60000),s=(ms-m*60000
 function sources(i){const fin=ROLE===FIN&&i.final&&i.versions.length?[{lab:'Final',v:0,id:i.final.id,sub:''}]:[];const a=i.versions.map(x=>({lab:'v'+x.v,v:x.v,id:x.id,sub:(x.date||'').slice(5,10)}));if(!a.length&&i.final)a.push({lab:'Final',v:0,id:i.final.id,sub:''});return [...a,...fin]}
 function actions(i,cur,st){const N=latest(i),isLast=cur.v===N&&N>0;if(!isLast)return'';
  const B=(id,l,c)=>`<button id="${id}" class="${c||''}">${l}</button>`;
- const m={Editors:{'New file':B('a_up','Uploaded','p'),'Changes requested':B('a_re','Ready for review after changes','p')},Reviewers:{},[FAR]:{'Waiting for Farah':B('a_fg','Final go-ahead (PIN)','p')},[FIN]:{'Waiting for approval':B('a_ap','Approve (PIN)','p')}}[ROLE];return m[st]||''}
-const WAIT={Editors:{'Ready for review':'Waiting for the reviewer.','Waiting for approval':'Reviewer is happy - waiting for Sarosh.','Waiting for Farah':'Sarosh approved - waiting for Farah.','Approved':'Approved.'},Reviewers:{},[FAR]:{},[FIN]:{}};
+ const m={Editors:{'New file':B('a_up','Uploaded','p'),'Changes requested':B('a_re','Ready for review after changes','p')},Reviewers:{},[FAR]:{'Waiting for Farah':B('a_fa','Approve (Farah)','p')},[FIN]:{'Waiting for approval':B('a_ap','Approve (PIN)','p')}}[ROLE];return m[st]||''}
+const WAIT={Editors:{'Ready for review':'Waiting for the reviewer.','Waiting for approval':'Approved - waiting for Sarosh.','Waiting for Farah':'Approved by reviewers - waiting for Farah.','Approved':'Approved.'},Reviewers:{},[FAR]:{},[FIN]:{}};
 function renderHead(i,cur){const k=keyOf(i),st=status(i),N=latest(i),ev=(type)=>send('v_event',{key:k,v:N,type,by:(($('#act_nm')||{}).value||'')}),last=evOf(k).pop();
  $('#hd').innerHTML=`<b style="font-size:16px">${esc(i.pillar)} / ${esc(i.lang)} / ${esc(i.code)}</b><span class="chip ${cls(st)}">${st}</span>
   <span class="tabs">${sources(i).map(s=>`<button aria-pressed="${s.lab===selV}" data-v="${s.lab}">${s.lab}${s.sub?' · '+s.sub:''}</button>`).join('')}</span><span style="flex:1"></span>
@@ -124,17 +126,17 @@ function renderHead(i,cur){const k=keyOf(i),st=status(i),N=latest(i),ev=(type)=>
  document.querySelectorAll('.tabs button').forEach(b=>b.onclick=()=>{selV=b.dataset.v;pend=null;renderView()});
  const on=(id,f)=>{const e=$('#'+id);if(e)e.onclick=f};
  on('a_up',()=>send('v_uploaded',{key:k,by:(($('#act_nm')||{}).value||'')}));on('a_re',()=>ev('resubmitted'));on('a_ok',()=>ev('ok'));on('a_chg',()=>ev('changes'));
- on('a_ap',async()=>{const pin=prompt('Sarosh PIN to approve. This copies the file to the final folder (an existing final goes to _old).');if(pin==null)return;if(await send('v_approve',{key:k,v:N,pin}))toast(k.split('|')[1]==='ENGLISH'?'Approved - now waiting for Farah (final check)':'Approved - file copied to the final folder')});
- on('a_fg',async()=>{const pin=prompt('Farah PIN for the final go-ahead. This copies the file to the final folder (an existing final goes to _old).');if(pin==null)return;if(await send('v_farah',{key:k,v:N,pin}))toast('Final go-ahead - file copied to the final folder')});
+ on('a_ap',async()=>{const pin=prompt('Sarosh PIN to approve. This copies the file to the final folder (an existing final goes to _old).');if(pin==null)return;if(await send('v_approve',{key:k,v:N,pin}))toast('Approved - file copied to the final folder')});
+ on('a_fa',()=>send('v_farah_ok',{key:k,v:N}));
  if(ROLE===FIN)renderHist(i);else $('#hist').innerHTML='';renderTags(i,cur)}
-function renderTags(i,cur){const el=$('#tags');if(!el)return;const v=ROLE==='Editors'?(fixV(i)||cur.v):cur.v,k=keyOf(i),ev=evOf(k).filter(e=>e.v===v&&(e.type==='changes'||e.type==='ok'));
- el.innerHTML=ev.length?ev.map(e=>`<span class="chip ${e.type==='changes'?'s-Changes-requested':'s-Approved'}">${e.type==='changes'?'Changes':'OK'} by ${esc(e.by)} — ${esc(e.at)}</span>`).join(' '):'<span class="mut">No reviewer has finished yet.</span>'}
+function renderTags(i,cur){const el=$('#tags');if(!el)return;const v=ROLE==='Editors'?(fixV(i)||cur.v):cur.v,k=keyOf(i),ev=evOf(k).filter(e=>e.v===v&&(isCh(e)||e.type==='ok'));
+ el.innerHTML=ev.length?ev.map(e=>`<span class="chip ${isCh(e)?'s-Changes-requested':'s-Approved'}">${isCh(e)?'Changes':'OK'} by ${esc(e.by)} — ${esc(e.at)}</span>`).join(' '):'<span class="mut">No reviewer has finished yet.</span>'}
 function renderHist(i){const k=keyOf(i),h=[...evOf(k).map(e=>({at:e.at,t:TAG[e.type](e)})),...D.docs.filter(d=>d.key===k).map(d=>({at:d.at,t:`Extra comments document by ${d.by} (v${d.v})`})),...i.versions.map(v=>({at:v.date||'',t:`v${v.v} file detected${v.name?' ("'+v.name+'")':''}`}))].sort((a,b)=>a.at<b.at?-1:1);
  $('#hist').innerHTML='<div class="sec">History</div><div class="hist">'+(h.map(x=>`<span><b>${esc(x.t)}</b> <span class="mut">${esc(x.at)}</span></span>`).join('')||'<span class="mut">Nothing yet.</span>')+'</div>'}
 let revName='';const NAME=()=>'',saveName=v=>{};
-const fixV=i=>{const c=evOf(keyOf(i)).filter(e=>e.type==='changes').pop();return c?c.v:0};   // version whose change list the editor must fix
+const fixV=i=>{const c=evOf(keyOf(i)).filter(e=>isCh(e)).pop();return c?c.v:0};   // version whose change list the editor must fix
 async function send(action,b){if(busy){toast('Still saving…');return false}
- const by=(b.by||'').trim();if(!by&&!['v_approve','v_farah','v_reopen','v_doc'].includes(action)){toast('Type your name next to the button first.');return false}if(by)saveName(by);
+ const by=(b.by||'').trim();if(!by&&!['v_approve','v_farah_ok','v_reopen','v_doc'].includes(action)){toast('Type your name next to the button first.');return false}if(by)saveName(by);
  busy=true;document.body.style.cursor='progress';
  try{await api(action,{...b,by});await load();return true}catch(e){toast('Not saved: '+e.message);return false}
  finally{busy=false;document.body.style.cursor=''}}
@@ -161,7 +163,7 @@ function cleanHTML(h){const d=new DOMParser().parseFromString('<body>'+(h||'')+'
  const o=document.createElement('div');walk(d.body,o);return o.innerHTML}
 const hasText=h=>(h||'').replace(/<[^>]*>|&nbsp;|\s/g,'').length>0||/<img/.test(h||'');
 const commentsOf=(k,v)=>(D.comments||[]).filter(c=>c.key===k&&Number(c.v)===v&&hasText(c.html));
-const gdocLink=(k,v,by)=>{const e=evOf(k).filter(e=>e.type==='changes'&&e.v===v&&e.docId&&(!by||e.by.toLowerCase()===by.toLowerCase())).pop();return e?`<a class="btn" style="text-decoration:none" target="_blank" rel="noopener" href="${DOC(e.docId)}/edit">Earlier comments (Google Doc)</a>`:''};
+const gdocLink=(k,v,by)=>{const e=evOf(k).filter(e=>isCh(e)&&e.v===v&&e.docId&&(!by||e.by.toLowerCase()===by.toLowerCase())).pop();return e?`<a class="btn" style="text-decoration:none" target="_blank" rel="noopener" href="${DOC(e.docId)}/edit">Earlier comments (Google Doc)</a>`:''};
 function shrink(file){return new Promise((res,rej)=>{const u=URL.createObjectURL(file),im=new Image();im.onload=()=>{const sc=Math.min(1,1200/im.width),c=document.createElement('canvas');c.width=Math.round(im.width*sc);c.height=Math.round(im.height*sc);c.getContext('2d').drawImage(im,0,0,c.width,c.height);URL.revokeObjectURL(u);res(c.toDataURL('image/jpeg',.8))};im.onerror=()=>rej(new Error('not an image'));im.src=u})}
 const draftKey=(k,v,n)=>'vr_draft|'+k+'|'+v+'|'+n.toLowerCase(),memDraft={};
 const getDraft=key=>{try{return localStorage.getItem(key)||memDraft[key]||''}catch(e){return memDraft[key]||''}},putDraft=(key,h)=>{memDraft[key]=h;try{h?localStorage.setItem(key,h):localStorage.removeItem(key)}catch(e){}};
@@ -184,19 +186,19 @@ function mountCompose(i,v,name,box,editing){const k=keyOf(i),ed=box.querySelecto
  window.onbeforeunload=()=>hasText(serEd(ed))&&!editing?'You have an unsent comment.':undefined;return ed}
 let editState=null;
 /* previous rounds, read-only: "Revision done - changes from v<r> (names) - fixed by <editor> <date>" */
-function rounds(i,v){const k=keyOf(i),out=[];for(let r=1;r<v;r++){const ch=evOf(k).filter(e=>e.type==='changes'&&e.v===r);if(!ch.length)continue;
+function rounds(i,v){const k=keyOf(i),out=[];for(let r=1;r<v;r++){const ch=evOf(k).filter(e=>isCh(e)&&e.v===r);if(!ch.length)continue;
  out.push({r,names:[...new Set(ch.map(e=>e.by))],fx:evOf(k).filter(e=>e.type==='resubmitted'&&e.v===r+1).pop(),all:D.docs.find(d=>d.key===k&&Number(d.v)===r&&d.by==='ALL')})}return out}
 const recSig=(i,v)=>rounds(i,v).map(x=>x.r+x.names.join()+(x.fx?x.fx.by+x.fx.at:'')).join(',');
 function recHTML(i,v){const lk=(u,t)=>`<a class="btn" style="text-decoration:none" target="_blank" rel="noopener" href="${u}">${t}</a>`;
  return rounds(i,v).map(x=>`<div class="card" style="margin-bottom:12px;border-style:dashed"><div class="bar2" style="margin:0"><b>Revision done — changes from v${x.r}</b><span class="mut">${x.names.map(esc).join(', ')} — ${x.fx?'fixed by '+esc(x.fx.by)+' '+esc(x.fx.at):'fix not marked yet'}</span><span style="flex:1"></span>${ROLE===FIN&&x.all?lk(DOC(x.all.docId)+'/edit','Open doc'):''}</div><div class="mut">Record of an earlier round (read-only history).</div></div>`).join('')}
 /* combined panel for Editors / Final videos: every reviewer's comments of one version */
 function combinedCards(i,v){const k=keyOf(i),cs=commentsOf(k,v),order=[],by={};cs.forEach(c=>{const n=c.by.toLowerCase();if(!by[n]){by[n]=[];order.push(n)}by[n].push(c)});
- const names=new Set(order),old=evOf(k).filter(e=>e.type==='changes'&&e.v===v&&e.docId&&!names.has(e.by.toLowerCase()));
+ const names=new Set(order),old=evOf(k).filter(e=>isCh(e)&&e.v===v&&e.docId&&!names.has(e.by.toLowerCase()));
  return order.map(n=>`<div class="card" style="margin-top:12px"><div class="bar2" style="margin:0"><b>Comments by ${esc(by[n][0].by)}</b><span class="mut">${by[n].length} comment${by[n].length>1?'s':''}</span><span style="flex:1"></span>${gdocLink(k,v,by[n][0].by)}</div>${by[n].map(c=>`<div class="citem"><div class="mut">${esc(c.by)} · ${esc(c.at)}</div><div class="cview">${cleanHTML(c.html)}</div></div>`).join('')}</div>`).join('')+
   old.map(e=>`<div class="card" style="margin-top:12px"><div class="bar2" style="margin:0"><b>Comments by ${esc(e.by)} — ${esc(e.at)}</b><span style="flex:1"></span>${gdocLink(k,v,e.by)}</div></div>`).join('')||'<div class="card mut" style="margin-top:12px">No comments yet.</div>'}
 async function printPanel(i,v){const box=document.createElement('div');box.innerHTML=`<h2>${esc(i.pillar)} / ${esc(i.lang)} / ${esc(i.code)} — v${v} — comments</h2><p>${new Date().toISOString().slice(0,10)}</p>`+combinedCards(i,v).replace(/class="card"/g,'class="n"');await fillImgs(box);$('#pa').innerHTML=box.innerHTML;await new Promise(r=>setTimeout(r,400));window.print()}
 async function renderDoc(i,cur){const box=$('#docbox');if(!box)return;const k=keyOf(i);let v=cur.v;if(!isRev()&&$('#rvbar'))$('#rvbar').innerHTML='';
- if(ROLE==='Editors'){const K=fixV(i),st=status(i),open=K&&(st==='Changes requested'||st==='New file');v=open?K:latest(i);if(!open&&!commentsOf(k,v).length&&!evOf(k).some(e=>e.type==='changes'&&e.v===v&&e.docId)){box.dataset.d='';box.innerHTML='<div class="card mut">No changes to fix right now.</div>';return}}
+ if(ROLE==='Editors'){const K=fixV(i),st=status(i),open=K&&(st==='Changes requested'||st==='New file');v=open?K:latest(i);if(!open&&!commentsOf(k,v).length&&!evOf(k).some(e=>isCh(e)&&e.v===v&&e.docId)){box.dataset.d='';box.innerHTML='<div class="card mut">No changes to fix right now.</div>';return}}
  if(!v){box.dataset.d='';box.innerHTML='<div class="card mut">This video is already final.</div>';return}
  if(!i.versions.find(x=>x.v===v))return;
  if(!isRev()){const cs=commentsOf(k,v),sg=ROLE+'|'+k+'|'+v+'|'+cs.map(c=>c.by+c.at).join()+'|'+evOf(k).length+'|'+recSig(i,v);if(box.dataset.d===sg)return;box.dataset.d=sg;
@@ -214,15 +216,15 @@ async function renderDoc(i,cur){const box=$('#docbox');if(!box)return;const k=ke
  box.dataset.d=sig;
  const item=c=>{const mine=me&&c.by.toLowerCase()===me.toLowerCase()&&canEdit;return `<div class="citem"><div class="bar2" style="margin:0"><b>${esc(c.by)}</b><span class="mut">${esc(c.at)}</span><span style="flex:1"></span>${mine?`<button data-ed="${esc(c.id)}">Edit</button><button data-del="${esc(c.id)}">Delete</button>`:''}</div><div class="cview">${cleanHTML(c.html)}</div></div>`};
  const list=`<div class="card"><div class="bar2" style="margin:0"><b>Comments on this version (${all.length})</b></div>${all.map(item).join('')||'<div class="mut" style="margin-top:8px">No comments yet.</div>'}</div>`;
- const done=me?evOf(k).filter(e=>e.type==='changes'&&e.v===v&&e.by.toLowerCase()===me.toLowerCase()).pop():null;
+ const done=me?evOf(k).filter(e=>isCh(e)&&e.v===v&&e.by.toLowerCase()===me.toLowerCase()).pop():null;
  const comp=(me&&canEdit)?`<div class="card" style="margin-top:12px"><div class="bar2" style="margin-top:0"><b>${editState?'Edit comment':'New comment'} — ${esc(me)}</b><span id="csave" class="chip">${editState?'Editing':'Draft (not sent yet)'}</span>${done?`<span class="chip">Changes by ${esc(done.by)} · ${esc(done.at)}</span>`:''}<span style="flex:1"></span>${gdocLink(k,v,me)}</div>
   <div class="mut" style="margin-bottom:8px">Write what must change and paste screenshots with Cmd+V (take one with Cmd+Shift+Ctrl+4). Put the timecode in your text. Nothing is sent until you press the button.</div>
   <div class="cbox" contenteditable="true" data-ph="Type here, paste screenshots with Cmd+V…"></div>
-  <div class="bar2"><button class="p" id="csubmit">${editState?'Save edit':'Submit comment'}</button>${editState?'<button id="ccancel">Cancel</button>':''}<span style="flex:1"></span><button id="rv_done">Changes done</button><span class="mut">tells the editor you finished</span></div></div>`:'';
+  <div class="bar2"><button class="p" id="csubmit">${editState?'Save edit':'Submit comment'}</button>${editState?'<button id="ccancel">Cancel</button>':''}<span style="flex:1"></span><button id="rv_done">${ROLE===FAR?'Changes needed':'Changes done'}</button><span class="mut">tells the editor you finished</span></div></div>`:'';
  box.innerHTML=recHTML(i,v)+list+comp;fillImgs(box);
  box.querySelectorAll('[data-ed]').forEach(b=>b.onclick=()=>{const c=all.find(x=>x.id===b.dataset.ed);editState={id:c.id,html:c.html};box.dataset.d='';renderDoc(i,cur)});
  box.querySelectorAll('[data-del]').forEach(b=>b.onclick=()=>{if(confirm('Delete this comment?'))send('v_comment_delete',{id:b.dataset.del,by:me})});
- if(me&&canEdit){const ed=mountCompose(i,v,me,box,editState);$('#rv_done').onclick=()=>send('v_event',{key:k,v,type:'changes',by:me})}}
+ if(me&&canEdit){const ed=mountCompose(i,v,me,box,editState);$('#rv_done').onclick=()=>send('v_event',{key:k,v,type:ROLE===FAR?'farah_changes':'changes',by:me})}}
 const setRole=r=>{ROLE=r;try{localStorage.setItem('vr_role',r)}catch(e){}sel=null;pend=null;$('#view').innerHTML='<div class="card mut">Pick a video on the left.</div>';document.querySelectorAll('#roles button').forEach(b=>b.setAttribute('aria-pressed',b.dataset.r===r));renderList()};
 document.querySelectorAll('#roles button').forEach(b=>b.onclick=()=>setRole(b.dataset.r));document.querySelectorAll('#roles button').forEach(b=>b.setAttribute('aria-pressed',b.dataset.r===ROLE));
 $('#fs').onchange=renderList;
