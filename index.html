@@ -145,7 +145,7 @@ function ghostView(i){const k=keyOf(i);$('#view').innerHTML=`<div class="card"><
  <div class="bar2"><input id="act_nm" placeholder="e.g. Cami" size="14" value="${esc(NAME())}"><button class="p" id="g_up">Uploaded</button></div></div>`;
  $('#g_up').onclick=async()=>{const nm=$('#act_nm').value.trim();if(await send('v_uploaded',{key:k,by:nm}))toast('Uploaded - the video is now in Reviewers')}}
 function renderView(keep){const i=item();if(!i){$('#view').innerHTML='';return}if(i.ghost){ghostView(i);return}
- const src=sources(i);if(!selV||!src.some(s=>s.lab===selV))selV=(ROLE===FIN&&src.some(s=>s.lab==='Final')?'Final':src[src.length-1].lab);const cur=src.find(s=>s.lab===selV),old=$('#vid');
+ const src=sources(i);if(!selV||!src.some(s=>s.lab===selV))selV=(ROLE===FIN&&src.some(s=>s.lab==='Final')&&status(i)!=='Waiting for approval'?'Final':src[src.length-1].lab)   /* waiting for Sarosh: open the version to approve, not the old final (the Approve button only shows on the latest version) */;const cur=src.find(s=>s.lab===selV),old=$('#vid');
  if(keep&&old&&old.dataset.id===cur.id){renderHead(i,cur);renderDoc(i,cur);return}   // background refresh: never touch the player or the open doc
  $('#view').innerHTML=`<div class="card"><div class="bar2" id="hd"></div><div class="bar2" id="act"></div><div class="bar2" id="rvbar"></div>
   <iframe id="vid" data-id="${cur.id}" src="https://drive.google.com/file/d/${cur.id}/preview" allow="autoplay; fullscreen" allowfullscreen style="width:100%;aspect-ratio:16/9;border:0;border-radius:10px;background:#000"></iframe><div id="tags" style="margin-top:10px;font-size:13px"></div></div>
