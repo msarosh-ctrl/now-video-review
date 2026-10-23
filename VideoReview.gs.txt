@@ -215,6 +215,16 @@ function vrInstallTrigger() {
   ScriptApp.getProjectTriggers().forEach(function (t) { if (t.getHandlerFunction() === 'vrIngestAll') ScriptApp.deleteTrigger(t); });
   ScriptApp.newTrigger('vrIngestAll').timeBased().everyMinutes(15).create();
 }
+/** A new version arrived after changes were requested (reviewer, Farah or reopen) -> tag it 'resubmitted' automatically, so the editor does not have to press a button. */
+function vrAutoResubmit_() {
+  const vers = vrVersions_(), evs = vrRows_('VideoEvents');
+  Object.keys(vers).forEach(function (key) {
+    const N = vers[key][vers[key].length - 1].v, last = evs.filter(function (e) { return e.key === key; }).pop();
+    if (last && ['changes', 'farah_changes', 'reopened'].indexOf(last.type) >= 0 && Number(last.v) < N) {
+      vrTab_('VideoEvents', true).appendRow([key, N, 'resubmitted', 'Editor (auto)', vrNow_(), '']); vrLog_('auto_resubmitted', key, '', 'v' + N + ' after ' + last.type + ' v' + last.v);
+    }
+  });
+}
 function vrIngestAll() {
   const lock = LockService.getScriptLock(); if (!lock.tryLock(25000)) return;
   try {
@@ -228,6 +238,7 @@ function vrIngestAll() {
         try { vrIngestFolder_(L, p, lang, unclear); } catch (err) { vrLog_('error', p + '|' + lang, '', String(err)); }
       }
     });
+    vrAutoResubmit_();
     vrBackfillDocs();
     PropertiesService.getScriptProperties().setProperty('VR_UNCLEAR', JSON.stringify(unclear.slice(0, 40)));
     CacheService.getScriptCache().remove('vr_finals');
@@ -368,6 +379,7 @@ function vrPost_(p) {
       if (a.length !== 3 || !VR_EXPECTED.hasOwnProperty(a[0]) || VR_LANGS.indexOf(a[1]) < 0) return vrJson_({ ok: false, code: 'bad_key' });
       const inbox = vrInbox_(), pf = inbox && vrSub_(inbox, a[0], false), L = pf && vrSub_(pf, a[1], false), unclear = [];
       if (L) vrIngestFolder_(L, a[0], a[1], unclear, true);
+      vrAutoResubmit_();
       const vs = vrVersions_()[key] || [];
       if (!vs.length) {
         const hint = unclear.length ? ' Files without a usable code: ' + unclear.map(function (u) { return u.name + ' (' + u.why + ')'; }).join(', ') + '.' : '';
