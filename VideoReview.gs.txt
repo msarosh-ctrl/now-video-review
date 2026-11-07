@@ -23,7 +23,7 @@ const VR_EXPECTED = {
   'START NOW': ['SH01'],
   'PROTECT': ['P01', 'P02', 'P03', 'P04', 'P05', 'P06', 'P07', 'P08'],
   'GROW': ['G00', 'G01', 'G02', 'G03', 'G04', 'G05', 'G06', 'G07', 'G08', 'G09'],
-  'MAKE': []       // add codes when decks are ready
+  'MAKE': ['M00', 'M01', 'M02', 'M03', 'M04', 'M05', 'M06', 'M07']
 };
 const VR_LANGS = ['ENGLISH', 'GERMAN', 'ITALIAN', 'GREEK', 'POLISH', 'SPANISH', 'JAPANESE'];
 const VR_PREFIX = { 'MINDSET': 'MS', 'START NOW': 'SH', 'PROTECT': 'P' };  // only used for a warning in VideoLog
