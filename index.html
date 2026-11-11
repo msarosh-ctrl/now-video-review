@@ -83,7 +83,7 @@ function status(i){if(i.ghost)return'Not uploaded yet';const k=keyOf(i),N=latest
  if(e.type==='resubmitted'&&i.lang==='ENGLISH'&&(evOf(k).filter(isCh).pop()||{}).type==='farah_changes')return'Waiting for Farah';   // Farah's changes: the fix goes straight back to her
  return{uploaded:'Ready for review',resubmitted:'Ready for review',changes:'Changes requested',farah_changes:'Changes requested',ok:'Waiting for approval'}[e.type]}
 const cls=s=>'s-'+s.replace(/\s/g,'-');
-const PORDER=['START NOW','MINDSET','PROTECT','GROW','MAKE'],pillars=g=>Object.keys(g).sort((a,b)=>(PORDER.indexOf(a)+1||99)-(PORDER.indexOf(b)+1||99)||a.localeCompare(b));
+const PORDER=['Welcome Video','START NOW','MINDSET','PROTECT','GROW','MAKE'],pillars=g=>Object.keys(g).sort((a,b)=>(PORDER.indexOf(a)+1||99)-(PORDER.indexOf(b)+1||99)||a.localeCompare(b));
 const chgNames=i=>{const N=latest(i),k=keyOf(i),n=evOf(k).filter(e=>isCh(e)&&e.v===N),up=evOf(k).filter(e=>(e.type==='uploaded'||e.type==='resubmitted')&&e.v===N).pop();
  const l1=isRev()&&up?(up.type==='uploaded'?'Uploaded by ':'Ready after changes by ')+esc(up.by)+' · '+esc(up.at):'',l2=n.length?n.map(e=>e.type==='farah_changes'?'Changes requested by Farah':'Changes by '+esc(e.by)).join(' · '):'';
  return l1||l2?`<br><span class="mut" style="font-size:12px">${[l1,l2].filter(Boolean).join('<br>')}</span>`:''};

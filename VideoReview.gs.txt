@@ -15,7 +15,8 @@
  * Script properties: VR_PIN = Sarosh's approve PIN (6+ characters); VR_API_KEY = the Drive API key (referrer-restricted; sent to the page so it can stream). Optional VR_INBOX = id of "For Revision Renders".
  */
 const VR_ROOT = '1CERVmZFpTSjshzrXo0Yp0nKz_usqrOBw';           // NEW NOW MATERIALS (finals live in <PILLAR>/VIDEO/<LANG>/)
-const VR_PILLARS = ['GROW', 'MAKE', 'MINDSET', 'PROTECT', 'START NOW'];
+const VR_PILLARS = ['GROW', 'MAKE', 'MINDSET', 'PROTECT', 'START NOW', 'Welcome Video'];
+const VR_VIDEO_DIR = { 'Welcome Video': 'Videos' };            // finals subfolder when it is not 'VIDEO'
 const VR_INBOX_PATH = ['NOW VIDEO ANIMATIONS FOR EDITORS', 'NEW VIDEOS', 'For Revision Renders'];
 /** Videos the Editors tab always lists (status "Not uploaded yet" until a file exists). Add codes here when decks are ready. */
 const VR_EXPECTED = {
@@ -23,10 +24,11 @@ const VR_EXPECTED = {
   'START NOW': ['SH01'],
   'PROTECT': ['P01', 'P02', 'P03', 'P04', 'P05', 'P06', 'P07', 'P08'],
   'GROW': ['G00', 'G01', 'G02', 'G03', 'G04', 'G05', 'G06', 'G07', 'G08', 'G09'],
-  'MAKE': ['M00', 'M01', 'M02', 'M03', 'M04', 'M05', 'M06', 'M07']
+  'MAKE': ['M00', 'M01', 'M02', 'M03', 'M04', 'M05', 'M06', 'M07'],
+  'Welcome Video': ['WV01']
 };
 const VR_LANGS = ['ENGLISH', 'GERMAN', 'ITALIAN', 'GREEK', 'POLISH', 'SPANISH', 'JAPANESE'];
-const VR_PREFIX = { 'MINDSET': 'MS', 'START NOW': 'SH', 'PROTECT': 'P' };  // only used for a warning in VideoLog
+const VR_PREFIX = { 'MINDSET': 'MS', 'START NOW': 'SH', 'PROTECT': 'P', 'Welcome Video': 'WV' };  // only used for a warning in VideoLog
 const VR_SETTLE_MS = 2 * 60 * 1000;                               // ignore files modified in the last 2 min (still uploading)
 const VR_HEAD = {
   VideoNotes: ['id', 'key', 'v', 'tc', 'tcText', 'text', 'by', 'at', 'shotId', 'fixed', 'fixedBy', 'fixedAt'],
@@ -112,6 +114,8 @@ function vrInit_() {
 }
 
 // ---------- Drive helpers ----------
+/** Case-insensitive child folder lookup (Welcome Video uses 'English', other pillars 'ENGLISH'). */
+function vrSubCI_(parent, name) { const ex = vrSub_(parent, name, false); if (ex) return ex; const it = parent.getFolders(), u = String(name).toUpperCase(); while (it.hasNext()) { const f = it.next(); if (f.getName().toUpperCase() === u) return f; } return null; }
 function vrSub_(parent, name, create) { const it = parent.getFoldersByName(name); if (it.hasNext()) return it.next(); return create ? parent.createFolder(name) : null; }
 function vrInbox_() {
   const id = PropertiesService.getScriptProperties().getProperty('VR_INBOX');
@@ -287,11 +291,11 @@ function vrFinals_() {
   const cache = CacheService.getScriptCache(), hit = cache.get('vr_finals'); if (hit) return JSON.parse(hit);
   const out = [], root = DriveApp.getFolderById(VR_ROOT);
   VR_PILLARS.forEach(function (p) {
-    const pf = vrSub_(root, p, false), vf = pf && vrSub_(pf, 'VIDEO', false); if (!vf) return;
+    const pf = vrSub_(root, p, false), vf = pf && vrSubCI_(pf, VR_VIDEO_DIR[p] || 'VIDEO'); if (!vf) return;
     const lf = vf.getFolders();
     while (lf.hasNext()) {
       const L = lf.next(), fs = L.getFiles();
-      while (fs.hasNext()) { const f = fs.next(), m = /^([A-Z]{1,3}\d{2})\.mp4$/.exec(f.getName()); if (m) out.push({ pillar: p, lang: L.getName(), code: m[1], id: f.getId() }); }
+      while (fs.hasNext()) { const f = fs.next(), m = /^([A-Z]{1,3}\d{2})\.mp4$/.exec(f.getName()); if (m) out.push({ pillar: p, lang: L.getName().toUpperCase(), code: m[1], id: f.getId() }); }
     }
   });
   const txt = JSON.stringify(out); if (txt.length < 95000) cache.put('vr_finals', txt, 300);
@@ -489,7 +493,7 @@ function vrApprove_(key, v) {
   const inbox = vrInbox_(), pf = inbox && vrSub_(inbox, a[0], false), L = pf && vrSub_(pf, a[1], false);
   const cur = L && L.getFilesByName(a[2] + '.mp4'); if (!cur || !cur.hasNext()) return vrJson_({ ok: false, code: 'no_file', message: a[2] + '.mp4 is not in the review folder.' });
   const file = cur.next(); if (file.getId() !== last.id) return vrJson_({ ok: false, code: 'stale', message: 'The file in the folder is not the reviewed version.' });
-  const root = DriveApp.getFolderById(VR_ROOT), pfin = vrSub_(root, a[0], false), vf = pfin && vrSub_(pfin, 'VIDEO', false), dest = vf && vrSub_(vf, a[1], false);
+  const root = DriveApp.getFolderById(VR_ROOT), pfin = vrSub_(root, a[0], false), vf = pfin && vrSubCI_(pfin, VR_VIDEO_DIR[a[0]] || 'VIDEO'), dest = vf && vrSubCI_(vf, a[1]);
   if (!dest) return vrJson_({ ok: false, code: 'no_dest', message: 'Final folder ' + a[0] + '/VIDEO/' + a[1] + ' not found.' });
   const ex = dest.getFilesByName(a[2] + '.mp4'), olds = [];
   while (ex.hasNext()) olds.push(ex.next());
